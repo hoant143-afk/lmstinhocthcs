@@ -1,0 +1,6 @@
+{
+  "name": "Smart Blended LMS",
+  "description": "Hệ thống học tập kết hợp 30% Online – 70% Trực tiếp dành cho Giáo viên & Học sinh",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
