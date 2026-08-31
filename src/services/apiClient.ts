@@ -4,8 +4,42 @@ export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
   error?: string;
+  errorCode?: string;
   message?: string;
   timestamp?: string;
+  httpStatus?: number;
+  contentType?: string;
+}
+
+export interface DiagnosticInfo {
+  isConfigured: boolean;
+  rawUrl: string;
+  maskedEndpoint: string;
+  action: string;
+  httpStatus: number | null;
+  contentType: string | null;
+  isJson: boolean;
+  success: boolean | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  responseSnippet: string;
+  timestamp: string;
+}
+
+export const ERROR_MESSAGES: Record<string, string> = {
+  CLASS_NOT_FOUND: 'Không tìm thấy mã lớp.',
+  CLASS_JOIN_DISABLED: 'Lớp hiện không cho phép tham gia.',
+  API_UNREACHABLE: 'Không thể kết nối máy chủ.',
+  API_NOT_CONFIGURED: 'Website chưa được cấu hình máy chủ dữ liệu.',
+  UNAUTHORIZED_DEPLOYMENT: 'Máy chủ hiện chưa cho phép thiết bị này truy cập.',
+  DATABASE_ERROR: 'Có lỗi khi truy cập cơ sở dữ liệu.'
+};
+
+export function mapErrorCodeToMessage(code: string | undefined, defaultMsg?: string): string {
+  if (code && ERROR_MESSAGES[code]) {
+    return ERROR_MESSAGES[code];
+  }
+  return defaultMsg || 'Đã có lỗi xảy ra.';
 }
 
 const APPS_SCRIPT_URL_STORAGE_KEY = 'sb_lms_appsscript_url_v1';
@@ -15,7 +49,71 @@ const DATA_PROVIDER_STORAGE_KEY = 'sb_lms_data_provider_v1'; // 'appsScript' | '
 let cachedApiUrl: string = '';
 let isConfigLoadedFromServer = false;
 
+// Global diagnostic state for UI inspecting
+let currentDiagnostic: DiagnosticInfo = {
+  isConfigured: false,
+  rawUrl: '',
+  maskedEndpoint: 'Chưa cấu hình',
+  action: 'none',
+  httpStatus: null,
+  contentType: null,
+  isJson: false,
+  success: null,
+  errorCode: null,
+  errorMessage: null,
+  responseSnippet: '',
+  timestamp: new Date().toISOString()
+};
+
+const diagnosticListeners: Array<(info: DiagnosticInfo) => void> = [];
+
+function maskUrl(url: string): string {
+  if (!url) return 'Chưa cấu hình';
+  try {
+    const parsed = new URL(url);
+    const pathParts = parsed.pathname.split('/');
+    const lastPart = pathParts[pathParts.length - 1] || '';
+    const execPart = pathParts.includes('exec') ? '/exec' : (pathParts.includes('dev') ? '/dev' : '');
+    const idSnippet = url.length > 20 ? `...${url.slice(-8)}` : '';
+    return `${parsed.host}${execPart} (${idSnippet})`;
+  } catch {
+    return url.length > 15 ? `${url.substring(0, 15)}...` : url;
+  }
+}
+
+function updateDiagnostic(info: Partial<DiagnosticInfo>) {
+  currentDiagnostic = {
+    ...currentDiagnostic,
+    ...info,
+    timestamp: new Date().toISOString()
+  };
+  diagnosticListeners.forEach(listener => {
+    try {
+      listener(currentDiagnostic);
+    } catch (e) {
+      console.warn('[apiClient] Diagnostic listener error:', e);
+    }
+  });
+}
+
 export const apiClient = {
+  subscribeDiagnostics(callback: (info: DiagnosticInfo) => void): () => void {
+    diagnosticListeners.push(callback);
+    callback(currentDiagnostic);
+    return () => {
+      const idx = diagnosticListeners.indexOf(callback);
+      if (idx >= 0) diagnosticListeners.splice(idx, 1);
+    };
+  },
+
+  getDiagnosticInfo(): DiagnosticInfo {
+    const url = this.getApiUrl();
+    currentDiagnostic.isConfigured = this.isAppsScriptConfigured();
+    currentDiagnostic.rawUrl = url;
+    currentDiagnostic.maskedEndpoint = maskUrl(url);
+    return { ...currentDiagnostic };
+  },
+
   getApiUrl(): string {
     // 1. Check in-memory cache
     if (cachedApiUrl && cachedApiUrl.trim()) {
@@ -58,6 +156,11 @@ export const apiClient = {
           if (config.dataProvider) {
             localStorage.setItem(DATA_PROVIDER_STORAGE_KEY, config.dataProvider);
           }
+          updateDiagnostic({
+            isConfigured: true,
+            rawUrl: url,
+            maskedEndpoint: maskUrl(url)
+          });
           return url;
         }
       }
@@ -73,6 +176,11 @@ export const apiClient = {
     if (cleanUrl) {
       localStorage.setItem(APPS_SCRIPT_URL_STORAGE_KEY, cleanUrl);
       localStorage.setItem(DATA_PROVIDER_STORAGE_KEY, 'appsScript');
+      updateDiagnostic({
+        isConfigured: true,
+        rawUrl: cleanUrl,
+        maskedEndpoint: maskUrl(cleanUrl)
+      });
       // Broadcast to server so all student devices and incognito tabs share this config
       fetch('/api/config', {
         method: 'POST',
@@ -82,12 +190,25 @@ export const apiClient = {
     } else {
       localStorage.removeItem(APPS_SCRIPT_URL_STORAGE_KEY);
       localStorage.setItem(DATA_PROVIDER_STORAGE_KEY, 'localStorage');
+      updateDiagnostic({
+        isConfigured: false,
+        rawUrl: '',
+        maskedEndpoint: 'Chưa cấu hình'
+      });
       fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ appsScriptUrl: '', dataProvider: 'localStorage' })
       }).catch(() => {});
     }
+  },
+
+  getAppsScriptUrl(): string {
+    return this.getApiUrl();
+  },
+
+  setAppsScriptUrl(url: string): void {
+    this.setApiUrl(url);
   },
 
   getDataProvider(): 'appsScript' | 'localStorage' {
@@ -113,7 +234,7 @@ export const apiClient = {
 
   /**
    * Sends a POST request to Google Apps Script /exec
-   * Google Apps Script Web App handles CORS via redirects and JSON responses
+   * Avoids CORS preflight by using Content-Type: text/plain;charset=utf-8
    */
   async request<T = any>(action: string, data: any = {}): Promise<ApiResponse<T>> {
     let url = this.getApiUrl();
@@ -124,11 +245,36 @@ export const apiClient = {
     }
 
     if (!url) {
-      return {
+      const errInfo: ApiResponse<T> = {
         success: false,
-        error: 'Chưa cấu hình Google Apps Script Web App URL (/exec).'
+        errorCode: 'API_NOT_CONFIGURED',
+        error: ERROR_MESSAGES.API_NOT_CONFIGURED,
+        message: 'Website chưa được cấu hình máy chủ dữ liệu Google Apps Script Web App.'
       };
+      updateDiagnostic({
+        isConfigured: false,
+        action,
+        httpStatus: null,
+        contentType: null,
+        isJson: false,
+        success: false,
+        errorCode: 'API_NOT_CONFIGURED',
+        errorMessage: errInfo.error,
+        responseSnippet: 'No URL configured'
+      });
+      return errInfo;
     }
+
+    updateDiagnostic({
+      isConfigured: true,
+      rawUrl: url,
+      maskedEndpoint: maskUrl(url),
+      action,
+      success: null,
+      errorCode: null,
+      errorMessage: null,
+      responseSnippet: 'Đang gửi yêu cầu...'
+    });
 
     try {
       const payload = JSON.stringify({
@@ -148,19 +294,232 @@ export const apiClient = {
         body: payload
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      const httpStatus = response.status;
+      const contentType = response.headers.get('content-type') || 'unknown';
+      const rawText = await response.text();
+      const snippet = rawText.length > 200 ? `${rawText.substring(0, 200)}...` : rawText;
+
+      // Detect Google Accounts login screen / permission restriction (HTML response)
+      if (
+        rawText.includes('accounts.google.com') ||
+        rawText.includes('ServiceLogin') ||
+        rawText.includes('Sign in - Google Accounts') ||
+        rawText.trim().startsWith('<!DOCTYPE html') ||
+        rawText.trim().startsWith('<html')
+      ) {
+        const errorMsg = 'Máy chủ Google Apps Script chưa được mở quyền truy cập công khai (Cần cấu hình Execute as: Me, Who has access: Anyone).';
+        updateDiagnostic({
+          action,
+          httpStatus,
+          contentType,
+          isJson: false,
+          success: false,
+          errorCode: 'UNAUTHORIZED_DEPLOYMENT',
+          errorMessage: errorMsg,
+          responseSnippet: snippet
+        });
+        return {
+          success: false,
+          httpStatus,
+          contentType,
+          errorCode: 'UNAUTHORIZED_DEPLOYMENT',
+          error: ERROR_MESSAGES.UNAUTHORIZED_DEPLOYMENT,
+          message: errorMsg
+        };
       }
 
-      const resJson: ApiResponse<T> = await response.json();
-      return resJson;
+      if (!response.ok) {
+        updateDiagnostic({
+          action,
+          httpStatus,
+          contentType,
+          isJson: false,
+          success: false,
+          errorCode: 'API_UNREACHABLE',
+          errorMessage: `HTTP error! status: ${response.status}`,
+          responseSnippet: snippet
+        });
+        return {
+          success: false,
+          httpStatus,
+          contentType,
+          errorCode: 'API_UNREACHABLE',
+          error: ERROR_MESSAGES.API_UNREACHABLE
+        };
+      }
+
+      let resJson: ApiResponse<T>;
+      try {
+        resJson = JSON.parse(rawText);
+      } catch (parseErr) {
+        updateDiagnostic({
+          action,
+          httpStatus,
+          contentType,
+          isJson: false,
+          success: false,
+          errorCode: 'API_UNREACHABLE',
+          errorMessage: 'Phản hồi từ máy chủ không phải là JSON hợp lệ.',
+          responseSnippet: snippet
+        });
+        return {
+          success: false,
+          httpStatus,
+          contentType,
+          errorCode: 'API_UNREACHABLE',
+          error: ERROR_MESSAGES.API_UNREACHABLE,
+          message: 'Phản hồi từ máy chủ không phải là JSON hợp lệ.'
+        };
+      }
+
+      // Check if backend returned an error
+      if (!resJson.success) {
+        let mappedCode = resJson.errorCode;
+        const rawError = resJson.error || '';
+
+        if (!mappedCode) {
+          if (rawError.includes('CLASS_NOT_FOUND') || rawError.toLowerCase().includes('không tìm thấy lớp')) {
+            mappedCode = 'CLASS_NOT_FOUND';
+          } else if (rawError.includes('CLASS_JOIN_DISABLED') || rawError.toLowerCase().includes('khóa tham gia')) {
+            mappedCode = 'CLASS_JOIN_DISABLED';
+          } else if (rawError.includes('DATABASE_ERROR') || rawError.toLowerCase().includes('chưa được khởi tạo')) {
+            mappedCode = 'DATABASE_ERROR';
+          }
+        }
+
+        const friendlyMsg = mappedCode && ERROR_MESSAGES[mappedCode] ? ERROR_MESSAGES[mappedCode] : (rawError || 'Thao tác thất bại.');
+
+        updateDiagnostic({
+          action,
+          httpStatus,
+          contentType,
+          isJson: true,
+          success: false,
+          errorCode: mappedCode || 'API_ERROR',
+          errorMessage: friendlyMsg,
+          responseSnippet: snippet
+        });
+
+        return {
+          ...resJson,
+          httpStatus,
+          contentType,
+          errorCode: mappedCode,
+          error: friendlyMsg
+        };
+      }
+
+      // Success
+      updateDiagnostic({
+        action,
+        httpStatus,
+        contentType,
+        isJson: true,
+        success: true,
+        errorCode: null,
+        errorMessage: null,
+        responseSnippet: snippet
+      });
+
+      return {
+        ...resJson,
+        httpStatus,
+        contentType
+      };
     } catch (err: any) {
       console.error(`API call failed for action [${action}]:`, err);
+      const isNetworkError = err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError');
+      const errCode = isNetworkError ? 'API_UNREACHABLE' : 'API_ERROR';
+      const friendlyMsg = isNetworkError ? ERROR_MESSAGES.API_UNREACHABLE : (err.message || 'Lỗi kết nối máy chủ.');
+
+      updateDiagnostic({
+        action,
+        httpStatus: null,
+        contentType: null,
+        isJson: false,
+        success: false,
+        errorCode: errCode,
+        errorMessage: friendlyMsg,
+        responseSnippet: err.message || 'Network exception'
+      });
+
       return {
         success: false,
-        error: err.message || 'Không thể kết nối đến Google Sheet API. Vui lòng kiểm tra lại URL Web App.'
+        errorCode: errCode,
+        error: friendlyMsg,
+        message: err.message
       };
     }
+  },
+
+  /**
+   * Health Check: calls system.health (supports both GET and POST)
+   */
+  async checkHealth(): Promise<{ ok: boolean; statusText?: string; data?: any; error?: string; errorCode?: string }> {
+    const url = this.getApiUrl();
+    if (!url) {
+      const serverRes = await fetch('/api/system/health').catch(() => null);
+      if (serverRes && serverRes.ok) {
+        const data = await serverRes.json();
+        return { ok: true, statusText: 'Máy chủ Node.js cục bộ hoạt động bình thường', data: data.data };
+      }
+      return { ok: false, error: ERROR_MESSAGES.API_NOT_CONFIGURED, errorCode: 'API_NOT_CONFIGURED' };
+    }
+
+    // Try GET first to test direct browser URL accessibility
+    try {
+      const getUrl = url.includes('?') ? `${url}&action=system.health` : `${url}?action=system.health`;
+      const response = await fetch(getUrl, { mode: 'cors', redirect: 'follow' });
+      const rawText = await response.text();
+      
+      if (rawText.includes('accounts.google.com') || rawText.includes('<html')) {
+        updateDiagnostic({
+          action: 'system.health',
+          httpStatus: response.status,
+          contentType: response.headers.get('content-type'),
+          isJson: false,
+          success: false,
+          errorCode: 'UNAUTHORIZED_DEPLOYMENT',
+          errorMessage: 'Yêu cầu đăng nhập Google (Cần mở quyền "Anyone")',
+          responseSnippet: rawText.substring(0, 150)
+        });
+        return {
+          ok: false,
+          errorCode: 'UNAUTHORIZED_DEPLOYMENT',
+          error: 'Apps Script chưa được cấp quyền công khai (Who has access: Anyone).'
+        };
+      }
+
+      if (response.ok) {
+        const json = JSON.parse(rawText);
+        if (json.status === 'ok' || json.data?.status === 'ok' || json.success) {
+          updateDiagnostic({
+            action: 'system.health',
+            httpStatus: response.status,
+            contentType: response.headers.get('content-type'),
+            isJson: true,
+            success: true,
+            errorCode: null,
+            errorMessage: null,
+            responseSnippet: rawText.substring(0, 150)
+          });
+          return { ok: true, statusText: 'Google Apps Script Web App kết nối hoàn hảo!', data: json.data || json };
+        }
+      }
+    } catch {
+      // Fallback to POST
+    }
+
+    const postRes = await this.request('system.health', {});
+    if (postRes.success) {
+      return { ok: true, statusText: 'Google Apps Script Web App hoạt động tốt!', data: postRes.data };
+    }
+
+    return {
+      ok: false,
+      errorCode: postRes.errorCode || 'API_UNREACHABLE',
+      error: postRes.error || ERROR_MESSAGES.API_UNREACHABLE
+    };
   },
 
   async ping(): Promise<{ ok: boolean; message?: string; time?: string }> {
@@ -190,4 +549,5 @@ export const apiClient = {
     return this.request('system.validateDatabase', {});
   }
 };
+
 

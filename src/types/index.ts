@@ -42,6 +42,8 @@ export interface ClassEntity {
   scoringEnabled: boolean;
   onlineRatio: number; // 30
   offlineRatio: number; // 70
+  status?: 'active' | 'inactive';
+  joinEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -92,6 +94,7 @@ export type TaskType =
   | 'google_form'
   | 'quiz'
   | 'question'
+  | 'practice'
   | 'assignment'
   | 'submission'
   | 'offline_activity'
@@ -100,18 +103,20 @@ export type TaskType =
 export type TaskPhase = 'online' | 'offline';
 
 export interface QuizOption {
-  id: string;
-  text: string;
-  isCorrect: boolean;
+  id?: string;
+  text?: string;
+  isCorrect?: boolean;
 }
 
 export interface QuizQuestion {
   id: string;
-  question: string;
-  type: 'multiple_choice' | 'true_false' | 'short_answer';
-  options?: QuizOption[];
+  question?: string;
+  prompt?: string;
+  type?: 'multiple_choice' | 'true_false' | 'short_answer' | string;
+  options?: (QuizOption | string)[];
   explanation?: string;
   points?: number;
+  correctIndex?: number;
   correctAnswerText?: string;
 }
 
@@ -126,10 +131,14 @@ export interface TaskSettings {
   externalUrl?: string;
   embedUrl?: string;
   quizQuestions?: QuizQuestion[];
+  questions?: QuizQuestion[];
   minQuizPassScore?: number;
+  passScore?: number;
   promptQuestion?: string;
   submissionType?: 'url' | 'file' | 'text' | 'all';
   allowedDomains?: string[];
+  allowLinks?: boolean;
+  allowFileUpload?: boolean;
   offlineActivityGuide?: string;
   requiresTeacherSignOff?: boolean;
   rubricNotes?: string;

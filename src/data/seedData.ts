@@ -86,6 +86,24 @@ export const SEED_CLASSES: ClassEntity[] = [
     offlineRatio: 70,
     createdAt: '2026-02-01T08:00:00.000Z',
     updatedAt: '2026-02-20T14:00:00.000Z'
+  },
+  {
+    id: 'class_7a11',
+    teacherId: 'teacher_01',
+    name: 'Lớp 7A11 - Tin học & Trải nghiệm Số',
+    subject: 'Tin học 7',
+    grade: 'Lớp 7',
+    schoolYear: '2025 - 2026',
+    description: 'Mô hình Blended Learning lớp 7: 30% Tự học trực tuyến chống tua + 70% Thực hành bảng tính & thiết kế trên lớp.',
+    classCode: 'TIN7_7A11',
+    status: 'active',
+    joinEnabled: true,
+    certificateEnabled: true,
+    scoringEnabled: true,
+    onlineRatio: 30,
+    offlineRatio: 70,
+    createdAt: '2026-02-10T08:00:00.000Z',
+    updatedAt: '2026-02-20T14:00:00.000Z'
   }
 ];
 
@@ -197,10 +215,108 @@ export const SEED_LESSONS: Lesson[] = [
     order: 3,
     createdAt: '2026-02-01T10:00:00.000Z',
     updatedAt: '2026-02-20T11:00:00.000Z'
+  },
+  {
+    id: 'lesson_7a11_01',
+    teacherId: 'teacher_01',
+    classId: 'class_7a11',
+    title: 'Bài 1: Làm quen với Bảng tính Điện tử & Định dạng Dữ liệu',
+    description: 'Tìm hiểu giao diện bảng tính, kiểu dữ liệu số/chuỗi, công thức tính toán cơ bản và thực hành bài tập trên lớp.',
+    objectives: [
+      'Nắm vững khái niệm ô (cell), hàng (row), cột (column) và địa chỉ ô.',
+      'Sử dụng các hàm cơ bản SUM, AVERAGE, COUNT, MAX, MIN.',
+      'Thực hiện bài tập thực hành tạo bảng điểm và tính tổng kết.'
+    ],
+    coverImage: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&auto=format&fit=crop&q=80',
+    status: 'active',
+    openAt: '2026-02-10T00:00:00.000Z',
+    dueAt: '2026-04-30T23:59:59.000Z',
+    sequentialLock: true,
+    scoringEnabled: true,
+    order: 1,
+    createdAt: '2026-02-10T10:00:00.000Z',
+    updatedAt: '2026-02-20T11:00:00.000Z'
   }
 ];
 
 export const SEED_TASKS: Task[] = [
+  // Tasks for lesson_7a11_01
+  {
+    id: 'task_7a11_01_video',
+    lessonId: 'lesson_7a11_01',
+    title: '1. [Online] Xem video: Hướng dẫn Thao tác Bảng tính Điện tử Cơ bản',
+    description: 'Xem toàn bộ video bài giảng (hệ thống có cơ chế đo lường thời gian xem thực tế, chống tua bài).',
+    type: 'video',
+    phase: 'online',
+    required: true,
+    order: 1,
+    settings: {
+      videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+      videoDurationSeconds: 120,
+      contentMarkdown: '### Mục tiêu bài học Tin học 7:\n- Nhập và căn chỉnh dữ liệu\n- Sử dụng công thức tính toán\n- Lưu và chia sẻ bảng tính'
+    },
+    createdAt: '2026-02-10T10:00:00.000Z'
+  },
+  {
+    id: 'task_7a11_02_quiz',
+    lessonId: 'lesson_7a11_01',
+    title: '2. [Online] Trắc nghiệm Kiểm tra Nhanh Kiến thức Bảng tính',
+    description: 'Làm 4 câu hỏi trắc nghiệm kiểm tra mức độ nắm vững bài học trực tuyến.',
+    type: 'quiz',
+    phase: 'online',
+    required: true,
+    order: 2,
+    settings: {
+      passScore: 75,
+      questions: [
+        {
+          id: 'q1',
+          prompt: 'Trong bảng tính điện tử, giao giữa một cột và một hàng được gọi là gì?',
+          options: ['Trường dữ liệu', 'Ô tính (Cell)', 'Khối ô', 'Trang tính'],
+          correctIndex: 1,
+          explanation: 'Giao của cột và hàng tạo thành ô tính (Cell), có địa chỉ ví dụ như A1, B5.'
+        },
+        {
+          id: 'q2',
+          prompt: 'Ký tự đầu tiên bắt buộc phải gõ khi nhập công thức tính toán là gì?',
+          options: ['Dấu cộng (+)', 'Dấu hai chấm (:)', 'Dấu bằng (=)', 'Dấu ngoặc đơn (()'],
+          correctIndex: 2,
+          explanation: 'Trong mọi phần mềm bảng tính, công thức bắt buộc phải bắt đầu bằng dấu "=".'
+        }
+      ]
+    },
+    createdAt: '2026-02-10T10:00:00.000Z'
+  },
+  {
+    id: 'task_7a11_03_practice',
+    lessonId: 'lesson_7a11_01',
+    title: '3. [Tại Lớp] Thực hành Tạo Bảng Điểm & Tính Điểm Trung Bình',
+    description: 'Thực hành trực tiếp tại phòng máy, nhập dữ liệu bảng điểm và sử dụng hàm AVERAGE tính điểm trung bình.',
+    type: 'practice',
+    phase: 'offline',
+    required: true,
+    order: 3,
+    settings: {
+      contentMarkdown: '### Nhiệm vụ thực hành:\n1. Mở phần mềm bảng tính trên máy tính\n2. Nhập danh sách 5 bạn trong tổ\n3. Tính điểm trung bình môn Tin học'
+    },
+    createdAt: '2026-02-10T10:00:00.000Z'
+  },
+  {
+    id: 'task_7a11_04_submit',
+    lessonId: 'lesson_7a11_01',
+    title: '4. [Nộp Sản Phẩm] Nộp File Bảng Tính hoặc Link Bài Làm',
+    description: 'Nộp link Google Drive, OneDrive hoặc file bài tập để Giáo viên chấm điểm và nhận xét.',
+    type: 'assignment',
+    phase: 'offline',
+    required: true,
+    order: 4,
+    settings: {
+      maxScore: 10,
+      allowLinks: true,
+      allowFileUpload: true
+    },
+    createdAt: '2026-02-10T10:00:00.000Z'
+  },
   // Tasks for lesson_01
   {
     id: 'task_01_video',

@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { studentService } from '../../services/studentService';
 import { classService, AvailableClassInfo } from '../../services/classService';
+import { apiClient, DiagnosticInfo } from '../../services/apiClient';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import {
@@ -20,7 +21,15 @@ import {
   Search,
   Users,
   Layers,
-  ArrowUpRight
+  ArrowUpRight,
+  Activity,
+  Server,
+  RefreshCw,
+  CheckCircle2,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Info
 } from 'lucide-react';
 
 export const JoinClassPage: React.FC = () => {
@@ -36,6 +45,12 @@ export const JoinClassPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Connection diagnostics state
+  const [diagnostic, setDiagnostic] = useState<DiagnosticInfo>(apiClient.getDiagnosticInfo());
+  const [isHealthChecking, setIsHealthChecking] = useState<boolean>(false);
+  const [healthStatus, setHealthStatus] = useState<string | null>(null);
+  const [showDiagnosticDetails, setShowDiagnosticDetails] = useState<boolean>(false);
+
   // Available classes in system created by teachers
   const [availableClasses, setAvailableClasses] = useState<AvailableClassInfo[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -43,6 +58,10 @@ export const JoinClassPage: React.FC = () => {
 
   useEffect(() => {
     loadAvailableClasses();
+    const unsubscribe = apiClient.subscribeDiagnostics(info => {
+      setDiagnostic(info);
+    });
+    return () => unsubscribe();
   }, []);
 
   const loadAvailableClasses = async () => {
@@ -51,6 +70,26 @@ export const JoinClassPage: React.FC = () => {
       setAvailableClasses(list);
     } catch (err) {
       console.error('Error loading available classes:', err);
+    }
+  };
+
+  const handleCheckHealth = async () => {
+    setIsHealthChecking(true);
+    setHealthStatus(null);
+    try {
+      const res = await apiClient.checkHealth();
+      if (res.ok) {
+        setHealthStatus(res.statusText || 'Kết nối máy chủ hoạt động tốt!');
+        toastSuccess('Máy chủ phản hồi tốt (status: ok)');
+      } else {
+        setHealthStatus(`Lỗi [${res.errorCode || 'API_ERROR'}]: ${res.error}`);
+        toastError(res.error || 'Kiểm tra máy chủ thất bại');
+      }
+    } catch (err: any) {
+      setHealthStatus(`Lỗi kết nối: ${err.message}`);
+      toastError('Không thể kết nối máy chủ');
+    } finally {
+      setIsHealthChecking(false);
     }
   };
 
@@ -224,6 +263,112 @@ export const JoinClassPage: React.FC = () => {
         </div>
       </Card>
 
+      {/* Connection Diagnostics Section */}
+      <div className="max-w-xl mx-auto">
+        <Card className="p-4 bg-slate-50/90 border-slate-200 text-xs text-slate-600 shadow-2xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-bold text-slate-800">
+              <Activity className="w-4 h-4 text-emerald-600" />
+              <span>Thông Tin Chẩn Đoán Kết Nối Máy Chủ</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowDiagnosticDetails(!showDiagnosticDetails)}
+              className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer"
+            >
+              <span>{showDiagnosticDetails ? 'Thu gọn' : 'Chi tiết'}</span>
+              {showDiagnosticDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <div className="bg-white p-2 rounded-lg border border-slate-200">
+              <span className="text-slate-400 block">API Configured:</span>
+              <span className={`font-bold ${diagnostic.isConfigured ? 'text-emerald-700' : 'text-amber-600'}`}>
+                {diagnostic.isConfigured ? '✅ Có (Google Apps Script)' : '⚙️ Cục bộ / Node Server'}
+              </span>
+            </div>
+
+            <div className="bg-white p-2 rounded-lg border border-slate-200 truncate">
+              <span className="text-slate-400 block">API Endpoint:</span>
+              <span className="font-mono font-medium text-slate-700 truncate block" title={diagnostic.rawUrl}>
+                {diagnostic.maskedEndpoint}
+              </span>
+            </div>
+
+            <div className="bg-white p-2 rounded-lg border border-slate-200">
+              <span className="text-slate-400 block">Request Action:</span>
+              <span className="font-mono font-bold text-indigo-700">{diagnostic.action || 'system.health'}</span>
+            </div>
+
+            <div className="bg-white p-2 rounded-lg border border-slate-200">
+              <span className="text-slate-400 block">HTTP Status:</span>
+              <span className={`font-mono font-bold ${diagnostic.httpStatus === 200 ? 'text-emerald-700' : (diagnostic.httpStatus ? 'text-rose-600' : 'text-slate-500')}`}>
+                {diagnostic.httpStatus !== null ? `${diagnostic.httpStatus}` : 'Chưa gửi'}
+              </span>
+            </div>
+          </div>
+
+          {showDiagnosticDetails && (
+            <div className="space-y-2 pt-2 border-t border-slate-200/80 text-[11px]">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Content-Type:</span>
+                <span className="font-mono text-slate-700">{diagnostic.contentType || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">API Success:</span>
+                <span className={`font-bold ${diagnostic.success === true ? 'text-emerald-600' : (diagnostic.success === false ? 'text-rose-600' : 'text-slate-400')}`}>
+                  {diagnostic.success === true ? 'True' : (diagnostic.success === false ? 'False' : 'N/A')}
+                </span>
+              </div>
+              {diagnostic.errorCode && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Error Code:</span>
+                  <span className="font-mono font-bold text-rose-600">{diagnostic.errorCode}</span>
+                </div>
+              )}
+              {diagnostic.errorMessage && (
+                <div className="text-rose-600 bg-rose-50 p-2 rounded border border-rose-200">
+                  <strong>Thông điệp lỗi:</strong> {diagnostic.errorMessage}
+                </div>
+              )}
+              {diagnostic.responseSnippet && (
+                <div className="space-y-1">
+                  <span className="text-slate-400 block">Phản hồi gần nhất:</span>
+                  <pre className="p-2 bg-slate-900 text-slate-100 rounded text-[10px] overflow-x-auto max-h-24">
+                    {diagnostic.responseSnippet}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+
+          {healthStatus && (
+            <div className={`p-2 rounded-lg text-[11px] font-medium border flex items-center gap-2 ${
+              healthStatus.includes('Lỗi') ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+            }`}>
+              {healthStatus.includes('Lỗi') ? <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> : <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
+              <span>{healthStatus}</span>
+            </div>
+          )}
+
+          <div className="pt-1 flex items-center justify-end gap-2">
+            <Button
+              id="btn-check-server-health"
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={handleCheckHealth}
+              isLoading={isHealthChecking}
+              leftIcon={<RefreshCw className="w-3 h-3" />}
+            >
+              Kiểm tra kết nối máy chủ (system.health)
+            </Button>
+          </div>
+        </Card>
+      </div>
+
       {/* Available Classes Section Created by Teachers */}
       <div className="space-y-4 pt-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -364,3 +509,4 @@ export const JoinClassPage: React.FC = () => {
     </div>
   );
 };
+

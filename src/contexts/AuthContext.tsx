@@ -3,6 +3,7 @@ import { UserRole, Teacher, StudentSession, ClassEntity, TeacherLoginDto, Teache
 import { teacherRepo, classRepo } from '../repositories';
 import { studentService } from '../services/studentService';
 import { authService } from '../services/authService';
+import { syncService } from '../services/syncService';
 
 interface AuthContextType {
   role: UserRole;
@@ -39,6 +40,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const initAuth = useCallback(async () => {
     setIsLoading(true);
     try {
+      // 0. Auto-sync with server configuration & shared database
+      await syncService.syncWithServer();
+
       // 1. Check saved role or default
       const savedRole = (localStorage.getItem(ROLE_STORAGE_KEY) as UserRole) || 'ROLE_TEACHER';
       setRoleState(savedRole);

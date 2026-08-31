@@ -28,7 +28,7 @@ import {
 const GOOGLE_APPS_SCRIPT_SAMPLE_CODE = `/**
  * ============================================================================
  * SMART BLENDED LMS - GOOGLE APPS SCRIPT WEB APP BACKEND (API ROUTER)
- * Công đoạn 3: REST-like API kết nối Web React ↔ Google Sheet Database (/exec)
+ * REST-like API kết nối Web React ↔ Google Sheet Database (/exec)
  * Hỗ trợ đa người dùng trực tuyến qua Internet: Giáo viên & Học sinh tham gia lớp
  * ============================================================================
  * HƯỚNG DẪN DEPLOY TRÊN GOOGLE APPS SCRIPT:
@@ -36,9 +36,9 @@ const GOOGLE_APPS_SCRIPT_SAMPLE_CODE = `/**
  * 2. Dán toàn bộ mã này vào Code.gs và nhấn Save (Ctrl+S).
  * 3. Nhấn "Triển khai" (Deploy) → "Triển khai mới" (New deployment).
  * 4. Loại triển khai: "Ứng dụng web" (Web app).
- * 5. Cấu hình triển khai:
+ * 5. CẤU HÌNH BẮT BUỘC ĐỂ HỌC SINH KHÔNG CẦN ĐĂNG NHẬP GOOGLE:
  *    - Thực thi dưới dạng (Execute as): Tôi (Me / your email).
- *    - Ai có quyền truy cập (Who has access): Bất kỳ ai (Anyone / Public).
+ *    - Ai có quyền truy cập (Who has access): Bất kỳ ai (Anyone).
  * 6. Nhấn "Triển khai", cấp quyền truy cập và copy URL dạng:
  *    https://script.google.com/macros/s/.../exec (KẾT THÚC BẰNG /exec, KHÔNG DÙNG /dev)
  * 7. Dán URL vào ô cấu hình bên dưới và nhấn "Lưu Cấu Hình".
@@ -46,12 +46,33 @@ const GOOGLE_APPS_SCRIPT_SAMPLE_CODE = `/**
  */
 
 function doGet(e) {
-  var action = (e && e.parameter && e.parameter.action) || "ping";
+  var action = (e && e.parameter && e.parameter.action) || "system.health";
+  
+  if (action === "system.health" || action === "ping") {
+    var isDbConnected = false;
+    try {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      isDbConnected = Boolean(ss && ss.getSheetByName("CLASSES"));
+    } catch (err) {
+      isDbConnected = false;
+    }
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      data: {
+        service: "SMART BLENDED LMS API",
+        status: "ok",
+        databaseConnected: isDbConnected,
+        databaseVersion: "1.0.0",
+        timestamp: new Date().toISOString()
+      }
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
   if (action === "classes.getByCode" && e.parameter.classCode) {
     try {
       var ss = SpreadsheetApp.getActiveSpreadsheet();
       var sheet = ss.getSheetByName("CLASSES");
-      if (!sheet) throw new Error("Sheet CLASSES chưa được tạo.");
+      if (!sheet) throw new Error("DATABASE_ERROR: Sheet CLASSES chưa được tạo.");
       var rows = getSheetData(sheet);
       var code = String(e.parameter.classCode).trim().toUpperCase();
       var found = rows.find(function(r) { return String(r.classCode || "").trim().toUpperCase() === code; });
@@ -63,6 +84,7 @@ function doGet(e) {
     } catch (err) {
       return ContentService.createTextOutput(JSON.stringify({
         success: false,
+        errorCode: "DATABASE_ERROR",
         error: err.message
       })).setMimeType(ContentService.MimeType.JSON);
     }
@@ -70,8 +92,12 @@ function doGet(e) {
 
   return ContentService.createTextOutput(JSON.stringify({
     success: true,
-    message: "Smart Blended LMS Google Apps Script API is running! Ready for multi-user joining.",
-    timestamp: new Date().toISOString()
+    data: {
+      service: "SMART BLENDED LMS API",
+      status: "ok",
+      databaseConnected: true,
+      timestamp: new Date().toISOString()
+    }
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -89,9 +115,16 @@ function doPost(e) {
       timestamp: new Date().toISOString()
     })).setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
+    var rawErr = error.message || error.toString();
+    var errCode = "API_ERROR";
+    if (rawErr.indexOf("CLASS_NOT_FOUND") !== -1) errCode = "CLASS_NOT_FOUND";
+    else if (rawErr.indexOf("CLASS_JOIN_DISABLED") !== -1) errCode = "CLASS_JOIN_DISABLED";
+    else if (rawErr.indexOf("DATABASE_ERROR") !== -1) errCode = "DATABASE_ERROR";
+    
     return ContentService.createTextOutput(JSON.stringify({
       success: false,
-      error: error.message || error.toString(),
+      errorCode: errCode,
+      error: rawErr,
       timestamp: new Date().toISOString()
     })).setMimeType(ContentService.MimeType.JSON);
   } finally {
@@ -101,9 +134,27 @@ function doPost(e) {
 
 function handleApiAction(action, data) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // Public actions (No session required)
+  var PUBLIC_ACTIONS = [
+    "system.health",
+    "system.ping",
+    "students.join",
+    "classes.getByCode",
+    "system.setupDatabase",
+    "system.seedDemoData",
+    "system.validateDatabase"
+  ];
   
-  if (action === "system.ping") {
-    return { ok: true, message: "Google Sheet API kết nối thành công!", time: new Date().toISOString() };
+  if (action === "system.health" || action === "system.ping") {
+    var isDbConnected = Boolean(ss && ss.getSheetByName("CLASSES"));
+    return {
+      service: "SMART BLENDED LMS API",
+      status: "ok",
+      databaseConnected: isDbConnected,
+      databaseVersion: "1.0.0",
+      time: new Date().toISOString()
+    };
   }
   if (action === "system.setupDatabase") {
     return setupDatabase();
@@ -121,27 +172,31 @@ function handleApiAction(action, data) {
     if (!cleanCode) throw new Error("Vui lòng nhập Mã lớp học (Class Code).");
 
     var classSheet = ss.getSheetByName("CLASSES");
-    if (!classSheet) throw new Error("Sheet CLASSES chưa được khởi tạo. Hãy nhấn Khởi tạo CSDL trước.");
+    if (!classSheet) throw new Error("DATABASE_ERROR: Sheet CLASSES chưa được khởi tạo. Hãy nhấn Khởi tạo CSDL trước.");
     var classes = getSheetData(classSheet);
 
+    function normalizeCode(val) {
+      return String(val || "").trim().toUpperCase();
+    }
+
     var targetClass = classes.find(function(c) {
-      if (String(c.classCode || "").trim().toUpperCase() === cleanCode) return true;
+      if (normalizeCode(c.classCode) === normalizeCode(cleanCode)) return true;
       var cNorm = String(c.classCode || "").toUpperCase().replace(/[\\s\\-_]/g, "");
       var tNorm = cleanCode.replace(/[\\s\\-_]/g, "");
       return cNorm === tNorm;
     });
 
     if (!targetClass) {
-      throw new Error("Không tìm thấy lớp học với mã \\"" + cleanCode + "\\". Vui lòng kiểm tra lại mã lớp.");
+      throw new Error("CLASS_NOT_FOUND: Không tìm thấy mã lớp.");
     }
 
     if (targetClass.status === "inactive" || targetClass.joinEnabled === false) {
-      throw new Error("Lớp học \\"" + targetClass.name + "\\" hiện đang tạm khóa tham gia mới.");
+      throw new Error("CLASS_JOIN_DISABLED: Lớp hiện không cho phép tham gia.");
     }
 
     // Check or create student
     var studentSheet = ss.getSheetByName("STUDENTS");
-    if (!studentSheet) throw new Error("Sheet STUDENTS chưa được khởi tạo.");
+    if (!studentSheet) throw new Error("DATABASE_ERROR: Sheet STUDENTS chưa được khởi tạo.");
     var students = getSheetData(studentSheet);
 
     var existingStudent = students.find(function(s) {
@@ -183,6 +238,7 @@ function handleApiAction(action, data) {
         studentId: student.id,
         classId: targetClass.id,
         token: token,
+        actorType: "student",
         createdAt: new Date().toISOString()
       });
     }

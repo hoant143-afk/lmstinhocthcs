@@ -129,8 +129,35 @@ async function startServer() {
   // API ROUTES
   // ============================================================
 
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString(), classCount: db.classes.length });
+  // System health endpoints (Public, no auth required)
+  app.get(['/api/health', '/api/system/health'], (req, res) => {
+    res.json({
+      success: true,
+      data: {
+        service: 'SMART BLENDED LMS API',
+        status: 'ok',
+        databaseConnected: true,
+        databaseVersion: '1.0.0',
+        timestamp: new Date().toISOString(),
+        classCount: db.classes.length,
+        studentCount: db.students.length
+      }
+    });
+  });
+
+  app.post(['/api/health', '/api/system/health'], (req, res) => {
+    res.json({
+      success: true,
+      data: {
+        service: 'SMART BLENDED LMS API',
+        status: 'ok',
+        databaseConnected: true,
+        databaseVersion: '1.0.0',
+        timestamp: new Date().toISOString(),
+        classCount: db.classes.length,
+        studentCount: db.students.length
+      }
+    });
   });
 
   // --- CONFIG (Cross-Device Apps Script URL Sync) ---
@@ -318,7 +345,16 @@ async function startServer() {
     if (!targetClass) {
       return res.status(404).json({
         success: false,
+        errorCode: 'CLASS_NOT_FOUND',
         error: `Không tìm thấy lớp học với mã "${cleanCode}". Vui lòng liên hệ Thầy/Cô để nhận đúng mã lớp.`
+      });
+    }
+
+    if (targetClass.status === 'inactive' || targetClass.joinEnabled === false) {
+      return res.status(403).json({
+        success: false,
+        errorCode: 'CLASS_JOIN_DISABLED',
+        error: `Lớp học "${targetClass.name}" hiện đang tạm khóa tham gia mới.`
       });
     }
 
@@ -630,6 +666,79 @@ async function startServer() {
     db = initializeSeedData();
     saveDatabaseToDisk();
     res.json({ success: true, message: 'Database reset to seed data' });
+  });
+
+  // --- FULL DATA SYNC (Cross-Device Auto-Sync) ---
+  app.post('/api/sync/push', (req, res) => {
+    try {
+      const { classes, lessons, tasks, teachers, students } = req.body;
+      let addedClasses = 0;
+
+      if (Array.isArray(classes)) {
+        classes.forEach(incoming => {
+          const cleanCode = (incoming.classCode || '').trim().toUpperCase();
+          const existingIdx = db.classes.findIndex(
+            c => c.id === incoming.id || (c.classCode && cleanCode && c.classCode.toUpperCase() === cleanCode)
+          );
+          if (existingIdx >= 0) {
+            db.classes[existingIdx] = { ...db.classes[existingIdx], ...incoming, classCode: cleanCode || db.classes[existingIdx].classCode };
+          } else {
+            db.classes.unshift({
+              ...incoming,
+              classCode: cleanCode,
+              status: incoming.status || 'active',
+              joinEnabled: incoming.joinEnabled ?? true
+            });
+            addedClasses++;
+          }
+        });
+      }
+
+      if (Array.isArray(lessons)) {
+        lessons.forEach(incoming => {
+          const existingIdx = db.lessons.findIndex(l => l.id === incoming.id);
+          if (existingIdx >= 0) {
+            db.lessons[existingIdx] = { ...db.lessons[existingIdx], ...incoming };
+          } else {
+            db.lessons.push(incoming);
+          }
+        });
+      }
+
+      if (Array.isArray(tasks)) {
+        tasks.forEach(incoming => {
+          const existingIdx = db.tasks.findIndex(t => t.id === incoming.id);
+          if (existingIdx >= 0) {
+            db.tasks[existingIdx] = { ...db.tasks[existingIdx], ...incoming };
+          } else {
+            db.tasks.push(incoming);
+          }
+        });
+      }
+
+      if (Array.isArray(teachers)) {
+        teachers.forEach(incoming => {
+          const existingIdx = db.teachers.findIndex(t => t.id === incoming.id || (t.email && incoming.email && t.email.toLowerCase() === incoming.email.toLowerCase()));
+          if (existingIdx >= 0) {
+            db.teachers[existingIdx] = { ...db.teachers[existingIdx], ...incoming };
+          } else {
+            db.teachers.push(incoming);
+          }
+        });
+      }
+
+      saveDatabaseToDisk();
+      console.log(`[Sync Push] Merged client data. Total classes in server DB: ${db.classes.length}`);
+      res.json({
+        success: true,
+        totalClasses: db.classes.length,
+        totalLessons: db.lessons.length,
+        totalTasks: db.tasks.length
+      });
+    } catch (err: any) {
+      console.error('[Sync Push Error]:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   // ============================================================

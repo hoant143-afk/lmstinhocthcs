@@ -1,0 +1,163 @@
+{
+  "entities": {
+    "Teacher": {
+      "collection": "teachers",
+      "fields": {
+        "id": { "type": "string" },
+        "fullName": { "type": "string" },
+        "email": { "type": "string" },
+        "password": { "type": "string" },
+        "title": { "type": "string" },
+        "schoolName": { "type": "string" },
+        "subject": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "Class": {
+      "collection": "classes",
+      "fields": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "name": { "type": "string" },
+        "subject": { "type": "string" },
+        "grade": { "type": "string" },
+        "schoolYear": { "type": "string" },
+        "description": { "type": "string" },
+        "classCode": { "type": "string" },
+        "active": { "type": "boolean" },
+        "certificateEnabled": { "type": "boolean" },
+        "scoringEnabled": { "type": "boolean" },
+        "onlineRatio": { "type": "number" },
+        "offlineRatio": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "Member": {
+      "collection": "classes/{classCode}/members",
+      "fields": {
+        "studentId": { "type": "string" },
+        "name": { "type": "string" },
+        "fullName": { "type": "string" },
+        "classCode": { "type": "string" },
+        "classId": { "type": "string" },
+        "joinedAt": { "type": "string" },
+        "status": { "type": "string" },
+        "progress": { "type": "number" }
+      }
+    },
+    "Student": {
+      "collection": "students",
+      "fields": {
+        "id": { "type": "string" },
+        "classId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "email": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "joinedAt": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    "Lesson": {
+      "collection": "lessons",
+      "fields": {
+        "id": { "type": "string" },
+        "classId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "order": { "type": "number" },
+        "status": { "type": "string" },
+        "durationMinutes": { "type": "number" },
+        "onlinePercentage": { "type": "number" },
+        "offlinePercentage": { "type": "number" },
+        "authorTeacherId": { "type": "string" },
+        "isTemplate": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "Task": {
+      "collection": "tasks",
+      "fields": {
+        "id": { "type": "string" },
+        "lessonId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string" },
+        "phase": { "type": "string" },
+        "order": { "type": "number" },
+        "points": { "type": "number" },
+        "isRequired": { "type": "boolean" },
+        "isBlocking": { "type": "boolean" },
+        "durationMinutes": { "type": "number" },
+        "settings": { "type": "object" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "Progress": {
+      "collection": "progress",
+      "fields": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "lessonId": { "type": "string" },
+        "taskId": { "type": "string" },
+        "status": { "type": "string" },
+        "score": { "type": "number" },
+        "timeSpentSeconds": { "type": "number" },
+        "completedAt": { "type": "string" },
+        "lastUpdatedAt": { "type": "string" }
+      }
+    },
+    "Assignment": {
+      "collection": "assignments",
+      "fields": {
+        "id": { "type": "string" },
+        "lessonId": { "type": "string" },
+        "taskId": { "type": "string" },
+        "title": { "type": "string" },
+        "instruction": { "type": "string" },
+        "maxScore": { "type": "number" },
+        "submissionType": { "type": "string" }
+      }
+    },
+    "Submission": {
+      "collection": "submissions",
+      "fields": {
+        "id": { "type": "string" },
+        "assignmentId": { "type": "string" },
+        "taskId": { "type": "string" },
+        "lessonId": { "type": "string" },
+        "classId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "content": { "type": "string" },
+        "submittedAt": { "type": "string" },
+        "status": { "type": "string" },
+        "score": { "type": "number" },
+        "feedback": { "type": "string" }
+      }
+    },
+    "Announcement": {
+      "collection": "announcements",
+      "fields": {
+        "id": { "type": "string" },
+        "classId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "priority": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "Certificate": {
+      "collection": "certificates",
+      "fields": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "classId": { "type": "string" },
+        "certificateCode": { "type": "string" },
+        "issuedAt": { "type": "string" }
+      }
+    }
+  }
+}

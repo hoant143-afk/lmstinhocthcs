@@ -1,6 +1,6 @@
 import { studentRepo, classRepo } from '../repositories';
 import { Student, StudentSession, ClassEntity } from '../types';
-import { apiClient } from './apiClient';
+import { apiClient, mapErrorCodeToMessage } from './apiClient';
 
 const STUDENT_SESSION_KEY = 'sb_lms_student_session_v1';
 const STUDENT_TOKEN_KEY = 'sblms_student_token';
@@ -17,7 +17,15 @@ export const studentService = {
   async joinClass(
     fullName: string,
     classCode: string
-  ): Promise<{ success: boolean; student?: Student; class?: ClassEntity; session?: StudentSession; token?: string; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    student?: Student;
+    class?: ClassEntity;
+    session?: StudentSession;
+    token?: string;
+    error?: string;
+    errorCode?: string;
+  }> {
     const cleanName = (fullName || '').trim();
     const cleanCode = (classCode || '').trim().toUpperCase();
 
@@ -28,107 +36,61 @@ export const studentService = {
       return { success: false, error: 'Vui lòng nhập Mã lớp học (Class Code).' };
     }
 
-    // 1. If Google Apps Script Web App is configured, perform real cloud join via Sheet CLASSES & STUDENTS
-    if (apiClient.isAppsScriptConfigured()) {
-      try {
-        const cloudRes = await apiClient.studentJoinClass(cleanName, cleanCode);
-        if (cloudRes.success && cloudRes.data) {
-          const payload = cloudRes.data;
-          const student = payload.student;
-          const cls = payload.class;
-          const token = payload.token || `sblms_std_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-          const session: StudentSession = payload.session || {
-            studentId: student.id,
-            classId: cls.id,
-            fullName: student.fullName || cleanName,
-            joinedAt: student.joinedAt || new Date().toISOString()
-          };
-
-          this.setStudentToken(token);
-          this.setSession(session);
-
-          return {
-            success: true,
-            student,
-            class: cls,
-            session,
-            token
-          };
-        } else if (cloudRes.error) {
-          // If explicit error from Apps Script (e.g. class not found)
-          console.warn('[studentService] Apps Script returned error:', cloudRes.error);
-        }
-      } catch (cloudErr) {
-        console.warn('[studentService] Apps Script cloud join error:', cloudErr);
-      }
-    }
-
-    // 2. Try server API join for full-stack multi-device persistence
+    // 1. Direct Cloud Firestore query for class by code
     try {
-      const res = await fetch('/api/students/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullName: cleanName, classCode: cleanCode })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.session) {
-          const token = data.token || `sblms_std_${Date.now()}`;
-          this.setStudentToken(token);
-          this.setSession(data.session);
-          return {
-            success: true,
-            student: data.student,
-            class: data.class,
-            session: data.session,
-            token
-          };
-        } else if (data.error) {
-          return { success: false, error: data.error };
-        }
+      const cls = await classRepo.getByCode(cleanCode);
+      if (!cls) {
+        return {
+          success: false,
+          errorCode: 'CLASS_NOT_FOUND',
+          error: mapErrorCodeToMessage('CLASS_NOT_FOUND', `Không tìm thấy lớp học với mã "${cleanCode}". Vui lòng kiểm tra lại chính xác mã lớp từ Thầy/Cô.`)
+        };
       }
-    } catch (apiErr) {
-      console.warn('[studentService] Server join request failed, trying repository fallback:', apiErr);
-    }
 
-    // 3. Fallback via classRepo & studentRepo
-    const cls = await classRepo.getByCode(cleanCode);
-    if (!cls) {
+      if (cls.status === 'inactive' || cls.joinEnabled === false) {
+        return {
+          success: false,
+          errorCode: 'CLASS_JOIN_DISABLED',
+          error: mapErrorCodeToMessage('CLASS_JOIN_DISABLED', `Lớp học "${cls.name}" hiện đang tạm khóa tham gia mới.`)
+        };
+      }
+
+      // Check if student already joined this class in Firestore
+      let student = await studentRepo.getByNameAndClass(cleanName, cls.id);
+      if (!student) {
+        student = await studentRepo.create({
+          classId: cls.id,
+          fullName: cleanName,
+          status: 'active'
+        });
+      }
+
+      const session: StudentSession = {
+        studentId: student.id,
+        classId: cls.id,
+        fullName: student.fullName,
+        joinedAt: student.joinedAt
+      };
+
+      const token = `sblms_std_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+      this.setStudentToken(token);
+      this.setSession(session);
+
+      return {
+        success: true,
+        student,
+        class: cls,
+        session,
+        token
+      };
+    } catch (dbError: any) {
+      console.error('[studentService] Firestore joinClass error:', dbError);
       return {
         success: false,
-        error: `Không tìm thấy lớp học với mã "${cleanCode}". Vui lòng kiểm tra lại mã lớp hoặc hỏi giáo viên bộ môn.`
+        errorCode: 'DATABASE_ERROR',
+        error: `Lỗi kết nối cơ sở dữ liệu Cloud Firestore: ${dbError.message || dbError}`
       };
     }
-
-    // Check if student already joined this class
-    let student = await studentRepo.getByNameAndClass(cleanName, cls.id);
-    if (!student) {
-      student = await studentRepo.create({
-        classId: cls.id,
-        fullName: cleanName,
-        status: 'active'
-      });
-    }
-
-    const session: StudentSession = {
-      studentId: student.id,
-      classId: cls.id,
-      fullName: student.fullName,
-      joinedAt: student.joinedAt
-    };
-
-    const token = `sblms_std_${Date.now()}`;
-    this.setStudentToken(token);
-    this.setSession(session);
-
-    return {
-      success: true,
-      student,
-      class: cls,
-      session,
-      token
-    };
   },
 
   getStudentToken(): string | null {
