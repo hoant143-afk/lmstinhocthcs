@@ -4,7 +4,7 @@ import { lessonService } from '../../services/lessonService';
 import { studentService } from '../../services/studentService';
 import { progressService } from '../../services/progressService';
 import { certificateService } from '../../services/certificateService';
-import { taskRepo } from '../../repositories/LocalStorageRepository';
+import { taskRepo } from '../../repositories';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { ClassEntity, Lesson, Student, Task } from '../../types';

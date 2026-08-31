@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { classService } from '../../services/classService';
 import { lessonService } from '../../services/lessonService';
-import { lessonRepo } from '../../repositories/LocalStorageRepository';
+import { lessonRepo } from '../../repositories';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { ClassEntity, Lesson } from '../../types';

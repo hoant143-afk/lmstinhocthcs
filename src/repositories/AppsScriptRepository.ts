@@ -133,11 +133,38 @@ export class AppsScriptClassRepository implements IClassRepository {
   }
 
   async getByCode(classCode: string): Promise<ClassEntity | null> {
-    const res = await apiClient.request<ClassEntity>('classes.getByCode', { classCode });
-    if (res.success && res.data) {
+    const clean = (classCode || '').trim().toUpperCase();
+    if (!clean) return null;
+
+    // 1. Direct Apps Script API call
+    const res = await apiClient.request<ClassEntity>('classes.getByCode', { classCode: clean });
+    if (res.success && res.data && res.data.id) {
       return res.data;
     }
-    return fallbackClass.getByCode(classCode);
+
+    // 2. Search in all classes list from Apps Script
+    const allRes = await apiClient.request<ClassEntity[]>('classes.getAll');
+    if (allRes.success && Array.isArray(allRes.data)) {
+      const found = allRes.data.find(c => {
+        if ((c.classCode || '').trim().toUpperCase() === clean) return true;
+        const normDb = (c.classCode || '').toUpperCase().replace(/[\s\-_]/g, '');
+        const normTarget = clean.replace(/[\s\-_]/g, '');
+        return normDb === normTarget;
+      });
+      if (found) return found;
+    }
+
+    // 3. Try Server API
+    try {
+      const serverRes = await fetch(`/api/classes/by-code/${encodeURIComponent(clean)}`);
+      if (serverRes.ok) {
+        const cls = await serverRes.json();
+        if (cls && cls.id) return cls;
+      }
+    } catch {}
+
+    // 4. Fallback to local
+    return fallbackClass.getByCode(clean);
   }
 
   async create(classData: Omit<ClassEntity, 'id' | 'createdAt' | 'updatedAt'>): Promise<ClassEntity> {

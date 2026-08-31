@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { submissionService } from '../../services/submissionService';
 import { classService } from '../../services/classService';
-import { studentRepo, taskRepo, lessonRepo } from '../../repositories/LocalStorageRepository';
+import { studentRepo, taskRepo, lessonRepo } from '../../repositories';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { Submission, ClassEntity, Student, Task, Lesson } from '../../types';

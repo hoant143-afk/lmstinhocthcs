@@ -1,7 +1,9 @@
 import { studentRepo, classRepo } from '../repositories';
 import { Student, StudentSession, ClassEntity } from '../types';
+import { apiClient } from './apiClient';
 
 const STUDENT_SESSION_KEY = 'sb_lms_student_session_v1';
+const STUDENT_TOKEN_KEY = 'sblms_student_token';
 
 export const studentService = {
   async getStudentsByClass(classId: string): Promise<Student[]> {
@@ -15,9 +17,9 @@ export const studentService = {
   async joinClass(
     fullName: string,
     classCode: string
-  ): Promise<{ success: boolean; student?: Student; class?: ClassEntity; session?: StudentSession; error?: string }> {
+  ): Promise<{ success: boolean; student?: Student; class?: ClassEntity; session?: StudentSession; token?: string; error?: string }> {
     const cleanName = (fullName || '').trim();
-    const cleanCode = (classCode || '').trim();
+    const cleanCode = (classCode || '').trim().toUpperCase();
 
     if (!cleanName) {
       return { success: false, error: 'Vui lòng nhập đầy đủ Họ và tên của bạn.' };
@@ -26,7 +28,42 @@ export const studentService = {
       return { success: false, error: 'Vui lòng nhập Mã lớp học (Class Code).' };
     }
 
-    // 1. Try server API join first for instant cross-device synchronization
+    // 1. If Google Apps Script Web App is configured, perform real cloud join via Sheet CLASSES & STUDENTS
+    if (apiClient.isAppsScriptConfigured()) {
+      try {
+        const cloudRes = await apiClient.studentJoinClass(cleanName, cleanCode);
+        if (cloudRes.success && cloudRes.data) {
+          const payload = cloudRes.data;
+          const student = payload.student;
+          const cls = payload.class;
+          const token = payload.token || `sblms_std_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+          const session: StudentSession = payload.session || {
+            studentId: student.id,
+            classId: cls.id,
+            fullName: student.fullName || cleanName,
+            joinedAt: student.joinedAt || new Date().toISOString()
+          };
+
+          this.setStudentToken(token);
+          this.setSession(session);
+
+          return {
+            success: true,
+            student,
+            class: cls,
+            session,
+            token
+          };
+        } else if (cloudRes.error) {
+          // If explicit error from Apps Script (e.g. class not found)
+          console.warn('[studentService] Apps Script returned error:', cloudRes.error);
+        }
+      } catch (cloudErr) {
+        console.warn('[studentService] Apps Script cloud join error:', cloudErr);
+      }
+    }
+
+    // 2. Try server API join for full-stack multi-device persistence
     try {
       const res = await fetch('/api/students/join', {
         method: 'POST',
@@ -37,12 +74,15 @@ export const studentService = {
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.session) {
+          const token = data.token || `sblms_std_${Date.now()}`;
+          this.setStudentToken(token);
           this.setSession(data.session);
           return {
             success: true,
             student: data.student,
             class: data.class,
-            session: data.session
+            session: data.session,
+            token
           };
         } else if (data.error) {
           return { success: false, error: data.error };
@@ -52,12 +92,12 @@ export const studentService = {
       console.warn('[studentService] Server join request failed, trying repository fallback:', apiErr);
     }
 
-    // 2. Fallback via classRepo & studentRepo
+    // 3. Fallback via classRepo & studentRepo
     const cls = await classRepo.getByCode(cleanCode);
     if (!cls) {
       return {
         success: false,
-        error: `Không tìm thấy lớp học với mã "${cleanCode}". Vui lòng kiểm tra lại chữ hoa/thường hoặc hỏi giáo viên bộ môn.`
+        error: `Không tìm thấy lớp học với mã "${cleanCode}". Vui lòng kiểm tra lại mã lớp hoặc hỏi giáo viên bộ môn.`
       };
     }
 
@@ -78,14 +118,25 @@ export const studentService = {
       joinedAt: student.joinedAt
     };
 
+    const token = `sblms_std_${Date.now()}`;
+    this.setStudentToken(token);
     this.setSession(session);
 
     return {
       success: true,
       student,
       class: cls,
-      session
+      session,
+      token
     };
+  },
+
+  getStudentToken(): string | null {
+    return localStorage.getItem(STUDENT_TOKEN_KEY);
+  },
+
+  setStudentToken(token: string): void {
+    localStorage.setItem(STUDENT_TOKEN_KEY, token);
   },
 
   getCurrentSession(): StudentSession | null {
@@ -109,8 +160,10 @@ export const studentService = {
   clearSession(): void {
     try {
       localStorage.removeItem(STUDENT_SESSION_KEY);
+      localStorage.removeItem(STUDENT_TOKEN_KEY);
     } catch (e) {
       console.error('Failed to clear student session', e);
     }
   }
 };
+

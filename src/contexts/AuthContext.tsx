@@ -27,6 +27,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const ROLE_STORAGE_KEY = 'sb_lms_active_role_v1';
+const TEACHER_TOKEN_KEY = 'sblms_teacher_token';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [role, setRoleState] = useState<UserRole>('ROLE_TEACHER');
@@ -38,15 +39,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const initAuth = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 1. Check saved role
+      // 1. Check saved role or default
       const savedRole = (localStorage.getItem(ROLE_STORAGE_KEY) as UserRole) || 'ROLE_TEACHER';
       setRoleState(savedRole);
 
-      // 2. Load teacher from storage
-      const currentTeacher = await teacherRepo.getCurrentTeacher();
-      setTeacher(currentTeacher);
-
-      // 3. Load student session
+      // 2. Load student session if present
       const session = studentService.getCurrentSession();
       setStudentSession(session);
 
@@ -55,6 +52,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (cls) {
           setCurrentClass(cls);
         }
+      }
+
+      // 3. Load teacher from storage/API
+      const currentTeacher = await teacherRepo.getCurrentTeacher();
+      setTeacher(currentTeacher);
+
+      // If student is logged in and no teacher token, set role to student
+      if (session && !localStorage.getItem(TEACHER_TOKEN_KEY) && savedRole !== 'ROLE_TEACHER') {
+        setRoleState('ROLE_STUDENT');
       }
     } catch (err) {
       console.error('Error initializing Auth:', err);
@@ -74,6 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginTeacher = async (dto: TeacherLoginDto): Promise<Teacher> => {
     const loggedTeacher = await authService.loginTeacher(dto);
+    localStorage.setItem(TEACHER_TOKEN_KEY, `sblms_tch_${loggedTeacher.id}_${Date.now()}`);
     setTeacher(loggedTeacher);
     setRole('ROLE_TEACHER');
     return loggedTeacher;
@@ -81,6 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const registerTeacher = async (dto: TeacherRegisterDto): Promise<Teacher> => {
     const newTeacher = await authService.registerTeacher(dto);
+    localStorage.setItem(TEACHER_TOKEN_KEY, `sblms_tch_${newTeacher.id}_${Date.now()}`);
     setTeacher(newTeacher);
     setRole('ROLE_TEACHER');
     return newTeacher;
@@ -88,6 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logoutTeacher = async () => {
     await authService.logoutTeacher();
+    localStorage.removeItem(TEACHER_TOKEN_KEY);
     setTeacher(null);
   };
 
@@ -96,6 +105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const target = (teacherId ? all.find(t => t.id === teacherId) : all[0]) || all[0];
     if (target) {
       await teacherRepo.setCurrentTeacher(target);
+      localStorage.setItem(TEACHER_TOKEN_KEY, `sblms_tch_${target.id}_${Date.now()}`);
       setTeacher(target);
       setRole('ROLE_TEACHER');
       return target;

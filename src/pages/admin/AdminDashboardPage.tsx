@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { classService } from '../../services/classService';
 import { lessonService } from '../../services/lessonService';
-import { studentRepo, submissionRepo, progressRepo, announcementRepo } from '../../repositories/LocalStorageRepository';
+import { studentRepo, submissionRepo, progressRepo, announcementRepo } from '../../repositories';
 import { ClassEntity, Lesson, Submission, Student, Announcement } from '../../types';
 import { Card, CardHeader } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';

@@ -5,7 +5,7 @@ import { lessonService } from '../../services/lessonService';
 import { studentService } from '../../services/studentService';
 import { submissionService } from '../../services/submissionService';
 import { progressService } from '../../services/progressService';
-import { taskRepo } from '../../repositories/LocalStorageRepository';
+import { taskRepo } from '../../repositories';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { ClassEntity, Lesson, Student, Submission, Task } from '../../types';

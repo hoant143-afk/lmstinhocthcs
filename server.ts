@@ -40,6 +40,8 @@ interface DatabaseSchema {
   announcements: Announcement[];
   certificates: Certificate[];
   currentTeacherId?: string;
+  appsScriptUrl?: string;
+  dataProvider?: string;
 }
 
 const DB_FILE_PATH = path.join(process.cwd(), 'data_store.json');
@@ -56,7 +58,9 @@ function initializeSeedData(): DatabaseSchema {
     progress: JSON.parse(JSON.stringify(SEED_PROGRESS)),
     announcements: JSON.parse(JSON.stringify(SEED_ANNOUNCEMENTS)),
     certificates: JSON.parse(JSON.stringify(SEED_CERTIFICATES)),
-    currentTeacherId: SEED_TEACHER.id
+    currentTeacherId: SEED_TEACHER.id,
+    appsScriptUrl: process.env.VITE_APPS_SCRIPT_API_URL || process.env.VITE_APPS_SCRIPT_URL || '',
+    dataProvider: 'appsScript'
   };
 }
 
@@ -80,7 +84,9 @@ function loadDatabaseFromDisk() {
           progress: parsed.progress || SEED_PROGRESS,
           announcements: parsed.announcements || SEED_ANNOUNCEMENTS,
           certificates: parsed.certificates || SEED_CERTIFICATES,
-          currentTeacherId: parsed.currentTeacherId || SEED_TEACHER.id
+          currentTeacherId: parsed.currentTeacherId || SEED_TEACHER.id,
+          appsScriptUrl: parsed.appsScriptUrl || process.env.VITE_APPS_SCRIPT_API_URL || process.env.VITE_APPS_SCRIPT_URL || '',
+          dataProvider: parsed.dataProvider || 'appsScript'
         };
         console.log(`[Database] Loaded persistent data: ${db.classes.length} classes, ${db.students.length} students, ${db.lessons.length} lessons`);
         return;
@@ -127,6 +133,27 @@ async function startServer() {
     res.json({ status: 'ok', time: new Date().toISOString(), classCount: db.classes.length });
   });
 
+  // --- CONFIG (Cross-Device Apps Script URL Sync) ---
+  app.get('/api/config', (req, res) => {
+    res.json({
+      appsScriptUrl: db.appsScriptUrl || process.env.VITE_APPS_SCRIPT_API_URL || process.env.VITE_APPS_SCRIPT_URL || '',
+      dataProvider: db.dataProvider || 'appsScript'
+    });
+  });
+
+  app.post('/api/config', (req, res) => {
+    const { appsScriptUrl, dataProvider } = req.body;
+    if (appsScriptUrl !== undefined) {
+      db.appsScriptUrl = (appsScriptUrl || '').trim();
+    }
+    if (dataProvider) {
+      db.dataProvider = dataProvider;
+    }
+    saveDatabaseToDisk();
+    console.log(`[Config Updated] Apps Script URL: ${db.appsScriptUrl}, Provider: ${db.dataProvider}`);
+    res.json({ success: true, appsScriptUrl: db.appsScriptUrl, dataProvider: db.dataProvider });
+  });
+
   // --- CLASSES ---
   app.get('/api/classes', (req, res) => {
     const { teacherId } = req.query;
@@ -138,11 +165,12 @@ async function startServer() {
 
   app.get('/api/classes/by-code/:code', (req, res) => {
     const rawCode = req.params.code;
-    const normalizedTarget = normalizeClassCode(rawCode);
+    const clean = (rawCode || '').trim().toUpperCase();
+    const normalizedTarget = normalizeClassCode(clean);
 
     const found = db.classes.find(c => {
-      if (c.classCode.toUpperCase() === rawCode.toUpperCase().trim()) return true;
-      return normalizeClassCode(c.classCode) === normalizedTarget;
+      if ((c.classCode || '').trim().toUpperCase() === clean) return true;
+      return normalizeClassCode(c.classCode || '') === normalizedTarget;
     });
 
     if (!found) {
@@ -159,9 +187,13 @@ async function startServer() {
 
   app.post('/api/classes', (req, res) => {
     const data = req.body;
+    const cleanCode = (data.classCode || '').trim().toUpperCase();
     const newClass: ClassEntity = {
       ...data,
+      classCode: cleanCode,
       id: data.id || `class_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      status: data.status || 'active',
+      joinEnabled: data.joinEnabled ?? true,
       createdAt: data.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -268,10 +300,10 @@ async function startServer() {
   app.post('/api/students/join', (req, res) => {
     const { fullName, classCode } = req.body;
     const cleanName = (fullName || '').trim();
-    const cleanCode = (classCode || '').trim();
+    const cleanCode = (classCode || '').trim().toUpperCase();
 
     if (!cleanName) {
-      return res.status(400).json({ success: false, error: 'Vui lòng nhập Họ và tên của bạn.' });
+      return res.status(400).json({ success: false, error: 'Vui lòng nhập đầy đủ Họ và tên của bạn.' });
     }
     if (!cleanCode) {
       return res.status(400).json({ success: false, error: 'Vui lòng nhập Mã lớp học (Class Code).' });
@@ -279,8 +311,8 @@ async function startServer() {
 
     const normalizedTarget = normalizeClassCode(cleanCode);
     const targetClass = db.classes.find(c => {
-      if (c.classCode.toUpperCase() === cleanCode.toUpperCase()) return true;
-      return normalizeClassCode(c.classCode) === normalizedTarget;
+      if ((c.classCode || '').trim().toUpperCase() === cleanCode) return true;
+      return normalizeClassCode(c.classCode || '') === normalizedTarget;
     });
 
     if (!targetClass) {
@@ -292,12 +324,12 @@ async function startServer() {
 
     // Check if student already registered in this class
     let student = db.students.find(
-      s => s.classId === targetClass.id && s.fullName.toLowerCase() === cleanName.toLowerCase()
+      s => s.classId === targetClass.id && s.fullName.toLowerCase().trim() === cleanName.toLowerCase().trim()
     );
 
     if (!student) {
       student = {
-        id: `student_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        id: `student_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
         classId: targetClass.id,
         fullName: cleanName,
         status: 'active',
@@ -308,18 +340,22 @@ async function startServer() {
       console.log(`[Student Joined] ${cleanName} joined class ${targetClass.name} (${targetClass.classCode})`);
     }
 
+    const token = `sblms_std_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+
     const session = {
       studentId: student.id,
       classId: targetClass.id,
       fullName: student.fullName,
-      joinedAt: student.joinedAt
+      joinedAt: student.joinedAt,
+      token
     };
 
     res.json({
       success: true,
       student,
       class: targetClass,
-      session
+      session,
+      token
     });
   });
 

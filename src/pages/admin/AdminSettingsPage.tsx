@@ -29,13 +29,48 @@ const GOOGLE_APPS_SCRIPT_SAMPLE_CODE = `/**
  * ============================================================================
  * SMART BLENDED LMS - GOOGLE APPS SCRIPT WEB APP BACKEND (API ROUTER)
  * Công đoạn 3: REST-like API kết nối Web React ↔ Google Sheet Database (/exec)
+ * Hỗ trợ đa người dùng trực tuyến qua Internet: Giáo viên & Học sinh tham gia lớp
+ * ============================================================================
+ * HƯỚNG DẪN DEPLOY TRÊN GOOGLE APPS SCRIPT:
+ * 1. Mở Google Sheet → Tiện ích mở rộng → Apps Script.
+ * 2. Dán toàn bộ mã này vào Code.gs và nhấn Save (Ctrl+S).
+ * 3. Nhấn "Triển khai" (Deploy) → "Triển khai mới" (New deployment).
+ * 4. Loại triển khai: "Ứng dụng web" (Web app).
+ * 5. Cấu hình triển khai:
+ *    - Thực thi dưới dạng (Execute as): Tôi (Me / your email).
+ *    - Ai có quyền truy cập (Who has access): Bất kỳ ai (Anyone / Public).
+ * 6. Nhấn "Triển khai", cấp quyền truy cập và copy URL dạng:
+ *    https://script.google.com/macros/s/.../exec (KẾT THÚC BẰNG /exec, KHÔNG DÙNG /dev)
+ * 7. Dán URL vào ô cấu hình bên dưới và nhấn "Lưu Cấu Hình".
  * ============================================================================
  */
 
 function doGet(e) {
+  var action = (e && e.parameter && e.parameter.action) || "ping";
+  if (action === "classes.getByCode" && e.parameter.classCode) {
+    try {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sheet = ss.getSheetByName("CLASSES");
+      if (!sheet) throw new Error("Sheet CLASSES chưa được tạo.");
+      var rows = getSheetData(sheet);
+      var code = String(e.parameter.classCode).trim().toUpperCase();
+      var found = rows.find(function(r) { return String(r.classCode || "").trim().toUpperCase() === code; });
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        data: found || null,
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: err.message
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   return ContentService.createTextOutput(JSON.stringify({
     success: true,
-    message: "Smart Blended LMS Google Apps Script API is running!",
+    message: "Smart Blended LMS Google Apps Script API is running! Ready for multi-user joining.",
     timestamp: new Date().toISOString()
   })).setMimeType(ContentService.MimeType.JSON);
 }
@@ -44,7 +79,7 @@ function doPost(e) {
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(15000);
-    var payload = JSON.parse(e.postData.contents || "{}");
+    var payload = JSON.parse((e && e.postData && e.postData.contents) || "{}");
     var action = payload.action;
     var data = payload.data || {};
     var result = handleApiAction(action, data);
@@ -76,8 +111,100 @@ function handleApiAction(action, data) {
   if (action === "system.seedDemoData") {
     return seedDemoData();
   }
-  
-  // Entity CRUD routes
+
+  // --- PUBLIC STUDENT JOIN CLASS API ---
+  if (action === "students.join") {
+    var rawName = String(data.fullName || "").trim();
+    var cleanCode = String(data.classCode || "").trim().toUpperCase();
+
+    if (!rawName) throw new Error("Vui lòng nhập đầy đủ Họ và tên học sinh.");
+    if (!cleanCode) throw new Error("Vui lòng nhập Mã lớp học (Class Code).");
+
+    var classSheet = ss.getSheetByName("CLASSES");
+    if (!classSheet) throw new Error("Sheet CLASSES chưa được khởi tạo. Hãy nhấn Khởi tạo CSDL trước.");
+    var classes = getSheetData(classSheet);
+
+    var targetClass = classes.find(function(c) {
+      if (String(c.classCode || "").trim().toUpperCase() === cleanCode) return true;
+      var cNorm = String(c.classCode || "").toUpperCase().replace(/[\\s\\-_]/g, "");
+      var tNorm = cleanCode.replace(/[\\s\\-_]/g, "");
+      return cNorm === tNorm;
+    });
+
+    if (!targetClass) {
+      throw new Error("Không tìm thấy lớp học với mã \\"" + cleanCode + "\\". Vui lòng kiểm tra lại mã lớp.");
+    }
+
+    if (targetClass.status === "inactive" || targetClass.joinEnabled === false) {
+      throw new Error("Lớp học \\"" + targetClass.name + "\\" hiện đang tạm khóa tham gia mới.");
+    }
+
+    // Check or create student
+    var studentSheet = ss.getSheetByName("STUDENTS");
+    if (!studentSheet) throw new Error("Sheet STUDENTS chưa được khởi tạo.");
+    var students = getSheetData(studentSheet);
+
+    var existingStudent = students.find(function(s) {
+      return String(s.fullName || "").trim().toLowerCase() === rawName.toLowerCase() && s.classId === targetClass.id;
+    });
+
+    var student = existingStudent;
+    if (!student) {
+      student = {
+        id: "std_" + new Date().getTime() + "_" + Math.floor(Math.random() * 1000),
+        classId: targetClass.id,
+        fullName: rawName,
+        status: "active",
+        joinedAt: new Date().toISOString()
+      };
+      appendRowData(studentSheet, student);
+    }
+
+    // Record enrollment in ENROLLMENTS sheet if present
+    var enrollSheet = ss.getSheetByName("ENROLLMENTS");
+    var enrollment = null;
+    if (enrollSheet) {
+      enrollment = {
+        id: "enr_" + new Date().getTime() + "_" + Math.floor(Math.random() * 1000),
+        studentId: student.id,
+        classId: targetClass.id,
+        status: "active",
+        enrolledAt: new Date().toISOString()
+      };
+      appendRowData(enrollSheet, enrollment);
+    }
+
+    // Generate unique student session token
+    var token = "sblms_std_" + Utilities.getUuid();
+    var sessionSheet = ss.getSheetByName("SESSIONS");
+    if (sessionSheet) {
+      appendRowData(sessionSheet, {
+        id: "sess_" + new Date().getTime(),
+        studentId: student.id,
+        classId: targetClass.id,
+        token: token,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    var session = {
+      studentId: student.id,
+      classId: targetClass.id,
+      fullName: student.fullName,
+      joinedAt: student.joinedAt,
+      token: token
+    };
+
+    return {
+      student: student,
+      class: targetClass,
+      enrollment: enrollment,
+      session: session,
+      token: token
+    };
+  }
+
+  // --- ENTITY CRUD ROUTES ---
   var parts = action.split(".");
   var entity = parts[0];
   var op = parts[1];
@@ -86,6 +213,8 @@ function handleApiAction(action, data) {
     teachers: "USERS",
     classes: "CLASSES",
     students: "STUDENTS",
+    enrollments: "ENROLLMENTS",
+    sessions: "SESSIONS",
     lessons: "LESSONS",
     tasks: "TASKS",
     progress: "PROGRESS",
@@ -98,7 +227,7 @@ function handleApiAction(action, data) {
   var sheetName = sheetMap[entity] || entity.toUpperCase();
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
-    throw new Error("Không tìm thấy bảng: " + sheetName);
+    throw new Error("Không tìm thấy bảng: " + sheetName + ". Vui lòng khởi tạo CSDL.");
   }
   
   var rows = getSheetData(sheet);
@@ -109,7 +238,9 @@ function handleApiAction(action, data) {
     if (entity === "lessons" && data.classId) return rows.filter(function(r) { return r.classId === data.classId; });
     if (entity === "tasks" && data.lessonId) return rows.filter(function(r) { return r.lessonId === data.lessonId; });
     if (entity === "progress" && data.studentId && data.lessonId) return rows.filter(function(r) { return r.studentId === data.studentId && r.lessonId === data.lessonId; });
+    if (entity === "progress" && data.classId) return rows.filter(function(r) { return r.classId === data.classId; });
     if (entity === "submissions" && data.assignmentId) return rows.filter(function(r) { return r.assignmentId === data.assignmentId; });
+    if (entity === "submissions" && data.classId) return rows.filter(function(r) { return r.classId === data.classId; });
     if (entity === "certificates" && data.studentId) return rows.filter(function(r) { return r.studentId === data.studentId; });
     return rows;
   }
@@ -120,16 +251,33 @@ function handleApiAction(action, data) {
   }
   
   if (op === "getByCode") {
-    var itemByCode = rows.find(function(r) { return r.classCode === data.classCode; });
+    var queryCode = String(data.classCode || "").trim().toUpperCase();
+    var itemByCode = rows.find(function(r) {
+      return String(r.classCode || "").trim().toUpperCase() === queryCode;
+    });
     return itemByCode || null;
   }
   
   if (op === "create") {
     var newId = data.id || (entity.slice(0, 3) + "_" + new Date().getTime());
     data.id = newId;
+    if (entity === "classes") {
+      data.classCode = String(data.classCode || ("BLN-" + Math.floor(1000 + Math.random() * 9000))).trim().toUpperCase();
+      data.status = data.status || "active";
+      data.joinEnabled = data.joinEnabled !== undefined ? data.joinEnabled : true;
+    }
     data.createdAt = data.createdAt || new Date().toISOString();
+    data.updatedAt = new Date().toISOString();
     appendRowData(sheet, data);
     return data;
+  }
+
+  if (op === "update") {
+    return updateRowData(sheet, data.id, data);
+  }
+
+  if (op === "delete") {
+    return deleteRowData(sheet, data.id);
   }
   
   if (op === "upsert") {
@@ -140,8 +288,10 @@ function handleApiAction(action, data) {
 }
 
 function getSheetData(sheet) {
-  var values = sheet.getDataRange().getValues();
-  if (values.length <= 1) return [];
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow <= 1 || lastCol < 1) return [];
+  var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
   var headers = values[0];
   var results = [];
   for (var i = 1; i < values.length; i++) {
@@ -162,7 +312,7 @@ function getSheetData(sheet) {
 }
 
 function appendRowData(sheet, data) {
-  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var headers = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
   var row = [];
   for (var i = 0; i < headers.length; i++) {
     var key = headers[i];
@@ -173,15 +323,13 @@ function appendRowData(sheet, data) {
   sheet.appendRow(row);
 }
 
-function upsertRowData(sheet, data, key1, key2) {
+function updateRowData(sheet, id, data) {
   var values = sheet.getDataRange().getValues();
   var headers = values[0];
-  var k1Idx = headers.indexOf(key1);
-  var k2Idx = headers.indexOf(key2);
-  
+  var idIdx = headers.indexOf("id");
+  if (idIdx === -1) return data;
   for (var i = 1; i < values.length; i++) {
-    if (values[i][k1Idx] == data[key1] && values[i][k2Idx] == data[key2]) {
-      // Update existing row
+    if (String(values[i][idIdx]) === String(id)) {
       var updateRow = [];
       for (var j = 0; j < headers.length; j++) {
         var key = headers[j];
@@ -193,9 +341,119 @@ function upsertRowData(sheet, data, key1, key2) {
       return data;
     }
   }
-  // If not found, append
+  return data;
+}
+
+function deleteRowData(sheet, id) {
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0];
+  var idIdx = headers.indexOf("id");
+  if (idIdx === -1) return true;
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][idIdx]) === String(id)) {
+      sheet.deleteRow(i + 1);
+      return true;
+    }
+  }
+  return true;
+}
+
+function upsertRowData(sheet, data, key1, key2) {
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0];
+  var k1Idx = headers.indexOf(key1);
+  var k2Idx = headers.indexOf(key2);
+  
+  for (var i = 1; i < values.length; i++) {
+    if (values[i][k1Idx] == data[key1] && values[i][k2Idx] == data[key2]) {
+      var updateRow = [];
+      for (var j = 0; j < headers.length; j++) {
+        var key = headers[j];
+        var val = data[key] !== undefined ? data[key] : values[i][j];
+        if (typeof val === "object") val = JSON.stringify(val);
+        updateRow.push(val);
+      }
+      sheet.getRange(i + 1, 1, 1, headers.length).setValues([updateRow]);
+      return data;
+    }
+  }
   appendRowData(sheet, data);
   return data;
+}
+
+function setupDatabase() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var schemas = {
+    USERS: ["id", "fullName", "email", "password", "schoolName", "subject", "title", "avatarUrl", "createdAt"],
+    CLASSES: ["id", "teacherId", "name", "subject", "grade", "schoolYear", "description", "classCode", "status", "joinEnabled", "certificateEnabled", "scoringEnabled", "onlineRatio", "offlineRatio", "createdAt", "updatedAt"],
+    STUDENTS: ["id", "classId", "fullName", "joinedAt", "status", "avatarUrl", "email"],
+    ENROLLMENTS: ["id", "studentId", "classId", "status", "enrolledAt"],
+    SESSIONS: ["id", "studentId", "classId", "token", "createdAt"],
+    LESSONS: ["id", "teacherId", "classId", "title", "description", "objectives", "status", "order", "sequentialLock", "scoringEnabled", "createdAt", "updatedAt"],
+    TASKS: ["id", "lessonId", "classId", "phase", "type", "title", "description", "order", "required", "points", "estimatedMinutes", "settings", "createdAt", "updatedAt"],
+    PROGRESS: ["id", "studentId", "lessonId", "taskId", "classId", "status", "score", "timeSpentSeconds", "lastPosition", "attempts", "completedAt", "updatedAt"],
+    ASSIGNMENTS: ["id", "teacherId", "classId", "lessonId", "taskId", "title", "description", "rubric", "maxScore", "dueAt", "createdAt"],
+    SUBMISSIONS: ["id", "assignmentId", "studentId", "classId", "lessonId", "taskId", "status", "content", "linkUrl", "score", "feedback", "gradedBy", "submittedAt", "gradedAt"],
+    ANNOUNCEMENTS: ["id", "teacherId", "classId", "title", "content", "createdAt"],
+    CERTIFICATES: ["id", "studentId", "classId", "certificateCode", "studentName", "className", "teacherName", "schoolName", "completionDate", "averageScore", "onlineProgress", "offlineProgress", "issuedAt"]
+  };
+
+  for (var name in schemas) {
+    var sheet = ss.getSheetByName(name);
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+    }
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(schemas[name]);
+      sheet.getRange(1, 1, 1, schemas[name].length).setFontWeight("bold").setBackground("#f3f4f6");
+      sheet.setFrozenRows(1);
+    }
+  }
+
+  return { ok: true, message: "Đã khởi tạo thành công 12 bảng dữ liệu trên Google Sheet!" };
+}
+
+function seedDemoData() {
+  setupDatabase();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var classSheet = ss.getSheetByName("CLASSES");
+  var userSheet = ss.getSheetByName("USERS");
+
+  if (userSheet && userSheet.getLastRow() <= 1) {
+    appendRowData(userSheet, {
+      id: "teacher_demo_1",
+      fullName: "Thầy Nguyễn Văn Hoàng",
+      email: "hoang.nv@school.edu.vn",
+      schoolName: "THPT Chuyên Lê Hồng Phong",
+      subject: "Tin học & STEM",
+      title: "Tổ trưởng Chuyên môn",
+      avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  if (classSheet && classSheet.getLastRow() <= 1) {
+    appendRowData(classSheet, {
+      id: "class_demo_1",
+      teacherId: "teacher_demo_1",
+      name: "Lớp 10A1 - Tin học & Chuyển đổi số",
+      subject: "Tin học 10",
+      grade: "Lớp 10",
+      schoolYear: "2025 - 2026",
+      description: "Mô hình Blended Learning: 30% Tự học Online chống tua + 70% Thực hành sáng tạo tại lớp.",
+      classCode: "TIN10-A1",
+      status: "active",
+      joinEnabled: true,
+      certificateEnabled: true,
+      scoringEnabled: true,
+      onlineRatio: 30,
+      offlineRatio: 70,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  return { ok: true, message: "Đã nạp dữ liệu mẫu ban đầu (Lớp 10A1, Mã: TIN10-A1)!" };
 }`;
 
 export const AdminSettingsPage: React.FC = () => {
