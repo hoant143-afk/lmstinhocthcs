@@ -1,5 +1,5 @@
 import { studentRepo, classRepo } from '../repositories';
-import { Student, StudentSession } from '../types';
+import { Student, StudentSession, ClassEntity } from '../types';
 
 const STUDENT_SESSION_KEY = 'sb_lms_student_session_v1';
 
@@ -12,20 +12,53 @@ export const studentService = {
     return studentRepo.getById(id);
   },
 
-  async joinClass(fullName: string, classCode: string): Promise<{ success: boolean; student?: Student; session?: StudentSession; error?: string }> {
-    const cleanName = fullName.trim();
-    const cleanCode = classCode.trim().toUpperCase();
+  async joinClass(
+    fullName: string,
+    classCode: string
+  ): Promise<{ success: boolean; student?: Student; class?: ClassEntity; session?: StudentSession; error?: string }> {
+    const cleanName = (fullName || '').trim();
+    const cleanCode = (classCode || '').trim();
 
     if (!cleanName) {
-      return { success: false, error: 'Vui lòng nhập Họ và tên của bạn.' };
+      return { success: false, error: 'Vui lòng nhập đầy đủ Họ và tên của bạn.' };
     }
     if (!cleanCode) {
-      return { success: false, error: 'Vui lòng nhập Mã lớp học.' };
+      return { success: false, error: 'Vui lòng nhập Mã lớp học (Class Code).' };
     }
 
+    // 1. Try server API join first for instant cross-device synchronization
+    try {
+      const res = await fetch('/api/students/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName: cleanName, classCode: cleanCode })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.session) {
+          this.setSession(data.session);
+          return {
+            success: true,
+            student: data.student,
+            class: data.class,
+            session: data.session
+          };
+        } else if (data.error) {
+          return { success: false, error: data.error };
+        }
+      }
+    } catch (apiErr) {
+      console.warn('[studentService] Server join request failed, trying repository fallback:', apiErr);
+    }
+
+    // 2. Fallback via classRepo & studentRepo
     const cls = await classRepo.getByCode(cleanCode);
     if (!cls) {
-      return { success: false, error: `Không tìm thấy lớp học với mã "${cleanCode}". Vui lòng kiểm tra lại.` };
+      return {
+        success: false,
+        error: `Không tìm thấy lớp học với mã "${cleanCode}". Vui lòng kiểm tra lại chữ hoa/thường hoặc hỏi giáo viên bộ môn.`
+      };
     }
 
     // Check if student already joined this class
@@ -45,11 +78,12 @@ export const studentService = {
       joinedAt: student.joinedAt
     };
 
-    localStorage.setItem(STUDENT_SESSION_KEY, JSON.stringify(session));
+    this.setSession(session);
 
     return {
       success: true,
       student,
+      class: cls,
       session
     };
   },
@@ -65,10 +99,18 @@ export const studentService = {
   },
 
   setSession(session: StudentSession): void {
-    localStorage.setItem(STUDENT_SESSION_KEY, JSON.stringify(session));
+    try {
+      localStorage.setItem(STUDENT_SESSION_KEY, JSON.stringify(session));
+    } catch (e) {
+      console.error('Failed to set student session', e);
+    }
   },
 
   clearSession(): void {
-    localStorage.removeItem(STUDENT_SESSION_KEY);
+    try {
+      localStorage.removeItem(STUDENT_SESSION_KEY);
+    } catch (e) {
+      console.error('Failed to clear student session', e);
+    }
   }
 };

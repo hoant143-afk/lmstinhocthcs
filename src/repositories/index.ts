@@ -12,6 +12,18 @@ import {
   LocalStorageCertificateRepository
 } from './LocalStorageRepository';
 import {
+  ServerTeacherRepository,
+  ServerClassRepository,
+  ServerStudentRepository,
+  ServerLessonRepository,
+  ServerTaskRepository,
+  ServerProgressRepository,
+  ServerAssignmentRepository,
+  ServerSubmissionRepository,
+  ServerAnnouncementRepository,
+  ServerCertificateRepository
+} from './ServerRepository';
+import {
   AppsScriptTeacherRepository,
   AppsScriptClassRepository,
   AppsScriptStudentRepository,
@@ -36,19 +48,19 @@ import {
   ICertificateRepository
 } from './interfaces';
 
-// Local storage instances
-const localTeacherRepo = new LocalStorageTeacherRepository();
-const localClassRepo = new LocalStorageClassRepository();
-const localStudentRepo = new LocalStorageStudentRepository();
-const localLessonRepo = new LocalStorageLessonRepository();
-const localTaskRepo = new LocalStorageTaskRepository();
-const localProgressRepo = new LocalStorageProgressRepository();
-const localAssignmentRepo = new LocalStorageAssignmentRepository();
-const localSubmissionRepo = new LocalStorageSubmissionRepository();
-const localAnnouncementRepo = new LocalStorageAnnouncementRepository();
-const localCertificateRepo = new LocalStorageCertificateRepository();
+// Server-backed instances (handles persistent shared database across all users/devices)
+const serverTeacherRepo = new ServerTeacherRepository();
+const serverClassRepo = new ServerClassRepository();
+const serverStudentRepo = new ServerStudentRepository();
+const serverLessonRepo = new ServerLessonRepository();
+const serverTaskRepo = new ServerTaskRepository();
+const serverProgressRepo = new ServerProgressRepository();
+const serverAssignmentRepo = new ServerAssignmentRepository();
+const serverSubmissionRepo = new ServerSubmissionRepository();
+const serverAnnouncementRepo = new ServerAnnouncementRepository();
+const serverCertificateRepo = new ServerCertificateRepository();
 
-// AppsScript instances
+// AppsScript instances (if Google Sheet sync is enabled)
 const appsScriptTeacherRepo = new AppsScriptTeacherRepository();
 const appsScriptClassRepo = new AppsScriptClassRepository();
 const appsScriptStudentRepo = new AppsScriptStudentRepository();
@@ -60,12 +72,12 @@ const appsScriptSubmissionRepo = new AppsScriptSubmissionRepository();
 const appsScriptAnnouncementRepo = new AppsScriptAnnouncementRepository();
 const appsScriptCertificateRepo = new AppsScriptCertificateRepository();
 
-// Dynamic proxy dispatcher that routes to AppsScript if configured, else LocalStorage
-function createRepoProxy<T extends object>(getLocal: () => T, getAppsScript: () => T): T {
+// Dynamic proxy dispatcher that routes to AppsScript if configured, else ServerRepository
+function createRepoProxy<T extends object>(getServer: () => T, getAppsScript: () => T): T {
   return new Proxy({} as T, {
     get(_, prop: string | symbol) {
-      const isCloud = apiClient.isAppsScriptConfigured() && apiClient.getDataProvider() === 'appsScript';
-      const target = isCloud ? getAppsScript() : getLocal();
+      const isGoogleCloud = apiClient.isAppsScriptConfigured() && apiClient.getDataProvider() === 'appsScript';
+      const target = isGoogleCloud ? getAppsScript() : getServer();
       const val = (target as any)[prop];
       if (typeof val === 'function') {
         return val.bind(target);
@@ -76,52 +88,52 @@ function createRepoProxy<T extends object>(getLocal: () => T, getAppsScript: () 
 }
 
 export const teacherRepo: ITeacherRepository = createRepoProxy(
-  () => localTeacherRepo,
+  () => serverTeacherRepo,
   () => appsScriptTeacherRepo
 );
 
 export const classRepo: IClassRepository = createRepoProxy(
-  () => localClassRepo,
+  () => serverClassRepo,
   () => appsScriptClassRepo
 );
 
 export const studentRepo: IStudentRepository = createRepoProxy(
-  () => localStudentRepo,
+  () => serverStudentRepo,
   () => appsScriptStudentRepo
 );
 
 export const lessonRepo: ILessonRepository = createRepoProxy(
-  () => localLessonRepo,
+  () => serverLessonRepo,
   () => appsScriptLessonRepo
 );
 
 export const taskRepo: ITaskRepository = createRepoProxy(
-  () => localTaskRepo,
+  () => serverTaskRepo,
   () => appsScriptTaskRepo
 );
 
 export const progressRepo: IProgressRepository = createRepoProxy(
-  () => localProgressRepo,
+  () => serverProgressRepo,
   () => appsScriptProgressRepo
 );
 
 export const assignmentRepo: IAssignmentRepository = createRepoProxy(
-  () => localAssignmentRepo,
+  () => serverAssignmentRepo,
   () => appsScriptAssignmentRepo
 );
 
 export const submissionRepo: ISubmissionRepository = createRepoProxy(
-  () => localSubmissionRepo,
+  () => serverSubmissionRepo,
   () => appsScriptSubmissionRepo
 );
 
 export const announcementRepo: IAnnouncementRepository = createRepoProxy(
-  () => localAnnouncementRepo,
+  () => serverAnnouncementRepo,
   () => appsScriptAnnouncementRepo
 );
 
 export const certificateRepo: ICertificateRepository = createRepoProxy(
-  () => localCertificateRepo,
+  () => serverCertificateRepo,
   () => appsScriptCertificateRepo
 );
 
