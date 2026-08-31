@@ -20,21 +20,25 @@ export const StudentSidebar: React.FC<StudentSidebarProps> = ({ onItemClick }) =
 
   const navItems = [
     {
+      id: 'student-desk',
       to: '/app',
       label: 'Bàn học của tôi',
       icon: <LayoutDashboard className="w-4 h-4" />
     },
     {
+      id: 'student-current-class',
       to: currentClass ? `/app/class/${currentClass.id}` : '/app',
       label: currentClass ? `Lớp: ${currentClass.name.split('-')[0]}` : 'Lớp học hiện tại',
       icon: <BookOpen className="w-4 h-4" />
     },
     {
+      id: 'student-progress',
       to: '/app/progress',
       label: 'Tiến độ học tập',
       icon: <TrendingUp className="w-4 h-4" />
     },
     {
+      id: 'student-join-class',
       to: '/app/join',
       label: 'Tham gia Lớp khác',
       icon: <PlusCircle className="w-4 h-4" />
@@ -67,7 +71,7 @@ export const StudentSidebar: React.FC<StudentSidebarProps> = ({ onItemClick }) =
           </div>
           {navItems.map(item => (
             <NavLink
-              key={item.to}
+              key={item.id}
               to={item.to}
               end={item.to === '/app'}
               onClick={onItemClick}

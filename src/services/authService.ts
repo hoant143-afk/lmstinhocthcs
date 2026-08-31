@@ -1,4 +1,4 @@
-import { teacherRepo, classRepo, lessonRepo, taskRepo } from '../repositories/LocalStorageRepository';
+import { teacherRepo, classRepo, lessonRepo, taskRepo } from '../repositories';
 import { Teacher, TeacherLoginDto, TeacherRegisterDto, ClassEntity } from '../types';
 import { generateClassCode } from './classService';
 

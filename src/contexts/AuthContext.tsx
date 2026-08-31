@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { UserRole, Teacher, StudentSession, ClassEntity, TeacherLoginDto, TeacherRegisterDto } from '../types';
-import { teacherRepo, classRepo } from '../repositories/LocalStorageRepository';
+import { teacherRepo, classRepo } from '../repositories';
 import { studentService } from '../services/studentService';
 import { authService } from '../services/authService';
 
@@ -19,6 +19,7 @@ interface AuthContextType {
   loginAsStudent: (session: StudentSession) => Promise<void>;
   logoutStudent: () => void;
   logout: () => void;
+  updateTeacherProfile: (data: Partial<Teacher>) => Promise<Teacher | null>;
   refreshUserData: () => Promise<void>;
   setCurrentClass: (cls: ClassEntity | null) => void;
 }
@@ -126,6 +127,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateTeacherProfile = async (data: Partial<Teacher>): Promise<Teacher | null> => {
+    if (!teacher) return null;
+    const updated = await teacherRepo.updateTeacher(teacher.id, data);
+    if (updated) {
+      setTeacher(updated);
+    }
+    return updated;
+  };
+
   const refreshUserData = async () => {
     await initAuth();
   };
@@ -147,6 +157,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginAsStudent,
         logoutStudent,
         logout,
+        updateTeacherProfile,
         refreshUserData,
         setCurrentClass
       }}

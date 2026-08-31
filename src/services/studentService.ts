@@ -1,4 +1,4 @@
-import { studentRepo, classRepo } from '../repositories/LocalStorageRepository';
+import { studentRepo, classRepo } from '../repositories';
 import { Student, StudentSession } from '../types';
 
 const STUDENT_SESSION_KEY = 'sb_lms_student_session_v1';

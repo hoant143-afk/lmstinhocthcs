@@ -1,4 +1,4 @@
-import { submissionRepo, assignmentRepo, studentRepo, lessonRepo, classRepo } from '../repositories/LocalStorageRepository';
+import { submissionRepo, assignmentRepo, studentRepo, lessonRepo, classRepo } from '../repositories';
 import { Submission, SubmissionStatus } from '../types';
 import { progressService } from './progressService';
 

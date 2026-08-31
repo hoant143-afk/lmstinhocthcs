@@ -1,4 +1,4 @@
-import { certificateRepo, classRepo, lessonRepo, studentRepo, teacherRepo, progressRepo, taskRepo } from '../repositories/LocalStorageRepository';
+import { certificateRepo, classRepo, lessonRepo, studentRepo, teacherRepo, progressRepo, taskRepo } from '../repositories';
 import { Certificate } from '../types';
 
 export const certificateService = {
@@ -44,7 +44,7 @@ export const certificateService = {
     if (!allLessonsCompleted) return null;
 
     const student = await studentRepo.getById(studentId);
-    const teacher = await teacherRepo.getCurrentTeacher();
+    const teacher = await teacherRepo.getCurrentTeacher() || (await teacherRepo.getById(cls.teacherId));
     if (!student) return null;
 
     const certCode = `CERT-${cls.subject.slice(0, 3).toUpperCase()}-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -55,7 +55,7 @@ export const certificateService = {
       studentName: student.fullName,
       classId: cls.id,
       teacherId: cls.teacherId,
-      teacherName: teacher.fullName,
+      teacherName: teacher?.fullName || 'Giáo viên bộ môn',
       courseName: cls.name,
       grade: cls.grade,
       completionRate: 100,

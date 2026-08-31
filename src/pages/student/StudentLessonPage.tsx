@@ -212,11 +212,15 @@ export const StudentLessonPage: React.FC = () => {
               {activeTask.type === 'video' && (
                 <div className="space-y-4">
                   <AntiSeekVideoPlayer
+                    key={`${activeTask.id}_${activeTask.settings.videoUrl || ''}`}
                     studentId={studentSession.studentId}
                     lessonId={lesson.id}
                     taskId={activeTask.id}
                     videoUrl={activeTask.settings.videoUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'}
                     initialVideoProgress={activeProgress?.metadata?.videoProgress}
+                    onProgressUpdate={() => {
+                      refreshProgress();
+                    }}
                     onCompleted={handleVideoCompleted}
                   />
                   <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 text-xs text-blue-900 flex items-center gap-2">

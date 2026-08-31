@@ -1,4 +1,4 @@
-import { classRepo, studentRepo, lessonRepo, progressRepo, teacherRepo } from '../repositories/LocalStorageRepository';
+import { classRepo, studentRepo, lessonRepo, progressRepo, teacherRepo } from '../repositories';
 import { ClassEntity, Teacher } from '../types';
 
 export function generateClassCode(prefix: string = 'LMS'): string {

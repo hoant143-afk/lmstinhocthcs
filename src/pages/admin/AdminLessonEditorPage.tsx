@@ -604,14 +604,31 @@ export const AdminLessonEditorPage: React.FC = () => {
             <div className="p-4 rounded-2xl bg-blue-50/60 border border-blue-200 space-y-4">
               <div className="font-bold text-xs text-blue-900 uppercase">Cấu Hình Video & Chống Tua</div>
               <Input
-                label="Đường Dẫn Video (Hỗ trợ MP4 trực tiếp hoặc CDN)"
-                placeholder="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+                label="Đường Dẫn Video (Hỗ trợ YouTube, Google Drive, Vimeo, hoặc file MP4)"
+                placeholder="https://www.youtube.com/watch?v=... hoặc https://drive.google.com/file/d/... hoặc MP4"
                 value={videoUrl}
                 onChange={e => setVideoUrl(e.target.value)}
               />
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span>Gợi ý nguồn mẫu:</span>
+                <button
+                  type="button"
+                  onClick={() => setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4')}
+                  className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 hover:bg-blue-200 font-semibold cursor-pointer"
+                >
+                  Video MP4 Chuẩn
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVideoUrl('https://vjs.zencdn.net/v/oceans.mp4')}
+                  className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 hover:bg-blue-200 font-semibold cursor-pointer"
+                >
+                  Video CDN Dự Phòng
+                </button>
+              </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-slate-700">Kích hoạt chặn tua vượt quá thời gian đã xem:</span>
-                <span className="font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">Bật</span>
+                <span className="font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">Bật (≥90%)</span>
               </div>
             </div>
           )}

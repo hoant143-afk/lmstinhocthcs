@@ -28,7 +28,7 @@ export const videoProgressService = {
   },
 
   /**
-   * Records ongoing playback time and checks completion threshold (>= 95%).
+   * Records ongoing playback time and checks completion threshold (>= 90%).
    */
   async updatePlayback(
     studentId: string,
@@ -41,7 +41,7 @@ export const videoProgressService = {
     const newMaxWatched = Math.max(currentMaxWatched, currentTime);
     const validDuration = duration > 0 ? duration : 1;
     const percent = Math.min(100, Math.round((newMaxWatched / validDuration) * 100));
-    const isCompleted = percent >= 95 || newMaxWatched >= validDuration * 0.95;
+    const isCompleted = percent >= 90 || newMaxWatched >= validDuration * 0.90;
 
     const videoProg: VideoProgress = {
       studentId,

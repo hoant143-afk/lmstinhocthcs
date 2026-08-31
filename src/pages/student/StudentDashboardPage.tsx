@@ -177,7 +177,7 @@ export const StudentDashboardPage: React.FC = () => {
 
               return (
                 <Card
-                  key={l.id}
+                  key={l.id ? `${l.id}_${idx}` : `lesson_${idx}`}
                   className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-emerald-300 transition group"
                 >
                   <div className="flex items-start gap-4">
@@ -272,8 +272,8 @@ export const StudentDashboardPage: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-3">
-                {announcements.map(ann => (
-                  <div key={ann.id} className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
+                {announcements.map((ann, idx) => (
+                  <div key={ann.id ? `${ann.id}_${idx}` : `ann_${idx}`} className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
                     <h5 className="text-xs font-bold text-slate-800">{ann.title}</h5>
                     <p className="text-[11px] text-slate-500 leading-relaxed">{ann.content}</p>
                     <div className="text-[10px] text-slate-400 pt-1">

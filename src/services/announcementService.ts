@@ -1,4 +1,4 @@
-import { announcementRepo } from '../repositories/LocalStorageRepository';
+import { announcementRepo } from '../repositories';
 import { Announcement } from '../types';
 
 export const announcementService = {

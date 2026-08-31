@@ -1,4 +1,4 @@
-import { taskRepo, assignmentRepo } from '../repositories/LocalStorageRepository';
+import { taskRepo, assignmentRepo } from '../repositories';
 import { Task, TaskPhase, TaskType, TaskSettings } from '../types';
 
 export const taskService = {

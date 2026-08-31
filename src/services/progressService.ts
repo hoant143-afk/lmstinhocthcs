@@ -1,4 +1,4 @@
-import { progressRepo, lessonRepo, taskRepo, classRepo } from '../repositories/LocalStorageRepository';
+import { progressRepo, lessonRepo, taskRepo, classRepo } from '../repositories';
 import { TaskProgress, LessonProgressSummary } from '../types';
 import { certificateService } from './certificateService';
 

@@ -1,4 +1,4 @@
-import { lessonRepo, taskRepo } from '../repositories/LocalStorageRepository';
+import { lessonRepo, taskRepo } from '../repositories';
 import { Lesson, LessonStatus } from '../types';
 
 export const lessonService = {
