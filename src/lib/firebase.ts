@@ -26,8 +26,8 @@ export const auth: Auth = getAuth(app);
 let authInitPromise: Promise<User | null> | null = null;
 
 /**
- * Ensures a valid Firebase Authentication session (using Anonymous Auth if not logged in)
- * This allows students on any device/incognito window to read/write Firestore seamlessly.
+ * Ensures a valid Firebase Authentication session (using Anonymous Auth if not logged in).
+ * Resolves quickly with a 1200ms timeout so database queries are never held hostage.
  */
 export async function ensureFirebaseAuth(): Promise<User | null> {
   if (auth.currentUser) {
@@ -38,22 +38,40 @@ export async function ensureFirebaseAuth(): Promise<User | null> {
     return authInitPromise;
   }
 
-  authInitPromise = new Promise((resolve) => {
+  const authPromise = new Promise<User | null>((resolve) => {
+    let hasResolved = false;
+    const safeResolve = (user: User | null) => {
+      if (!hasResolved) {
+        hasResolved = true;
+        resolve(user);
+      }
+    };
+
+    // Fast fallback after 1200ms so Firestore requests can proceed immediately
+    const timer = setTimeout(() => {
+      safeResolve(auth.currentUser || null);
+    }, 1200);
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       unsubscribe();
+      clearTimeout(timer);
       if (user) {
-        resolve(user);
+        safeResolve(user);
       } else {
         try {
           const userCredential = await signInAnonymously(auth);
-          resolve(userCredential.user);
+          safeResolve(userCredential.user);
         } catch (error) {
           console.warn('[Firebase] Anonymous signIn warning (will still attempt Firestore operations):', error);
-          resolve(null);
+          safeResolve(null);
         }
       }
     });
   });
 
-  return authInitPromise;
+  authInitPromise = authPromise;
+  return authPromise;
 }
+
+// Start auth immediately in background upon module load
+ensureFirebaseAuth().catch(() => {});

@@ -28,15 +28,9 @@ import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 
 export const LandingPage: React.FC = () => {
-  const { setRole, teacher, loginAsStudent } = useAuth();
-  const { toastSuccess, toastError, toastInfo } = useToast();
+  const { setRole, teacher, studentSession, isAuthenticatedStudent } = useAuth();
+  const { toastSuccess, toastInfo } = useToast();
   const navigate = useNavigate();
-
-  // Quick Join Form State on Landing Page
-  const [quickFullName, setQuickFullName] = useState<string>('');
-  const [quickClassCode, setQuickClassCode] = useState<string>('');
-  const [isJoining, setIsJoining] = useState<boolean>(false);
-  const [joinError, setJoinError] = useState<string | null>(null);
 
   // Available classes created by teachers
   const [availableClasses, setAvailableClasses] = useState<AvailableClassInfo[]>([]);
@@ -64,61 +58,20 @@ export const LandingPage: React.FC = () => {
     }
   };
 
-  const handleEnterAsStudent = () => {
-    setRole('ROLE_STUDENT');
-    navigate('/app/join');
-  };
-
-  const handleQuickJoinSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setJoinError(null);
-
-    const cleanName = quickFullName.trim();
-    const cleanCode = quickClassCode.trim().toUpperCase();
-
-    if (!cleanName) {
-      setJoinError('Vui lòng nhập đầy đủ Họ và tên học sinh.');
-      toastError('Vui lòng nhập Họ và tên');
-      return;
-    }
-
-    if (!cleanCode) {
-      setJoinError('Vui lòng nhập Mã lớp học (Class Code) do Thầy/Cô cung cấp.');
-      toastError('Vui lòng nhập Mã lớp học');
-      return;
-    }
-
-    setIsJoining(true);
-
-    try {
-      const res = await studentService.joinClass(cleanName, cleanCode);
-      if (res.success && res.session) {
-        await loginAsStudent(res.session);
-        toastSuccess(`Chào mừng ${res.session.fullName} đã vào lớp học ${res.class?.name || cleanCode} thành công!`);
-        navigate('/app');
-      } else {
-        setJoinError(res.error || 'Không tìm thấy lớp học với mã này. Vui lòng kiểm tra lại mã lớp.');
-        toastError(res.error || 'Lỗi tham gia lớp');
-      }
-    } catch (err: any) {
-      setJoinError(err.message || 'Đã có lỗi xảy ra khi vào lớp.');
-    } finally {
-      setIsJoining(false);
-    }
-  };
-
-  const handleSelectClassCode = (code: string) => {
-    setQuickClassCode(code);
-    setJoinError(null);
-    toastInfo(`Đã điền mã lớp: ${code}`);
-  };
-
   const handleCopyCode = (code: string, e: React.MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard.writeText(code);
     setCopiedCode(code);
     toastSuccess(`Đã sao chép mã lớp: ${code}`);
     setTimeout(() => setCopiedCode(null), 2500);
+  };
+
+  const handleSelectClassCode = (code: string) => {
+    if (isAuthenticatedStudent) {
+      navigate(`/app?joinCode=${code}`);
+    } else {
+      navigate(`/app/login?code=${code}`);
+    }
   };
 
   return (
@@ -152,8 +105,8 @@ export const LandingPage: React.FC = () => {
                     <GraduationCap className="w-5 h-5 text-emerald-700" />
                   </div>
                   <div>
-                    <h2 className="text-base font-bold text-slate-900">Vào Bàn Học Sinh Bằng Mã Lớp</h2>
-                    <p className="text-xs text-slate-500">Dành cho học sinh làm bài tập và xem bài giảng</p>
+                    <h2 className="text-base font-bold text-slate-900">Cổng Học Tập Dành Cho Học Sinh</h2>
+                    <p className="text-xs text-slate-500">Đăng nhập tài khoản cá nhân & tham gia lớp bằng mã lớp</p>
                   </div>
                 </div>
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[11px] border border-emerald-200">
@@ -161,75 +114,77 @@ export const LandingPage: React.FC = () => {
                 </span>
               </div>
 
-              {joinError && (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-start gap-2">
-                  <span>⚠️</span>
-                  <span>{joinError}</span>
+              {isAuthenticatedStudent ? (
+                <div className="space-y-4 py-2">
+                  <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-2">
+                    <div className="flex items-center gap-2 text-emerald-800 font-bold text-sm">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>Đang đăng nhập: {studentSession?.fullName}</span>
+                    </div>
+                    <p className="text-xs text-emerald-700">
+                      Tài khoản: <strong>{studentSession?.email}</strong>. Bạn đã sẵn sàng tham gia bài học hoặc thêm lớp học mới.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+                    <Button
+                      onClick={() => navigate('/app')}
+                      variant="success"
+                      size="lg"
+                      rightIcon={<ArrowRight className="w-4 h-4" />}
+                      className="w-full sm:flex-1 text-sm font-bold shadow-sm"
+                    >
+                      Vào Bàn Học Của Tôi
+                    </Button>
+                    <Button
+                      onClick={() => navigate('/app/profile')}
+                      variant="outline"
+                      size="lg"
+                      className="w-full sm:w-auto text-sm border-slate-300 text-slate-700"
+                    >
+                      Xem Hồ sơ
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                    Học sinh sử dụng <strong>Email & Mật khẩu</strong> để đăng nhập một lần, tham gia nhiều lớp học bằng Mã lớp học (Class Code) mà <strong>không cần nhập lại họ tên</strong>.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <Button
+                      onClick={() => navigate('/app/login')}
+                      variant="success"
+                      size="lg"
+                      rightIcon={<ArrowRight className="w-4 h-4" />}
+                      className="w-full text-sm font-bold shadow-sm"
+                    >
+                      Đăng nhập học sinh
+                    </Button>
+
+                    <Button
+                      onClick={() => navigate('/app/register')}
+                      variant="outline"
+                      size="lg"
+                      className="w-full text-sm font-bold border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                    >
+                      Đăng ký tài khoản mới
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-slate-100 text-xs text-slate-500">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Không cần nhập lại họ tên mỗi lần vào học</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Tham gia nhiều lớp học, theo dõi tiến độ và chứng nhận trọn đời</span>
+                    </div>
+                  </div>
                 </div>
               )}
-
-              <form onSubmit={handleQuickJoinSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                    Họ và tên của bạn <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ví dụ: Trần Minh Anh hoặc Lê Hoàng Nam..."
-                      value={quickFullName}
-                      onChange={e => setQuickFullName(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-slate-900 placeholder:text-slate-400"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                      Mã lớp học (Class Code) <span className="text-rose-500">*</span>
-                    </label>
-                    <span className="text-[11px] text-emerald-700 font-medium">Do Thầy/Cô cung cấp</span>
-                  </div>
-                  <div className="relative">
-                    <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ví dụ: TIN10-A1, PY11-A3..."
-                      value={quickClassCode}
-                      onChange={e => setQuickClassCode(e.target.value.toUpperCase())}
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm font-mono uppercase font-bold text-slate-900 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 tracking-wider"
-                    />
-                  </div>
-                </div>
-
-                <Button
-                  type="submit"
-                  variant="success"
-                  size="lg"
-                  isLoading={isJoining}
-                  rightIcon={<ArrowRight className="w-4 h-4" />}
-                  className="w-full text-sm font-bold shadow-sm"
-                >
-                  Vào Bàn Học Sinh Ngay
-                </Button>
-              </form>
-
-              {/* Quick helper */}
-              <div className="pt-2 flex items-center justify-between text-xs text-slate-500">
-                <span>Chưa có mã lớp?</span>
-                <button
-                  type="button"
-                  onClick={handleEnterAsStudent}
-                  className="text-emerald-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <span>Xem tất cả lớp học có sẵn</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
             </div>
 
             {/* Teacher Fast Entry Portal (Right 5 cols) */}

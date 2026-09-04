@@ -1,16 +1,15 @@
 import {
-  FirestoreTeacherRepository,
-  FirestoreClassRepository,
-  FirestoreStudentRepository,
-  FirestoreLessonRepository,
-  FirestoreTaskRepository,
-  FirestoreProgressRepository,
-  FirestoreAssignmentRepository,
-  FirestoreSubmissionRepository,
-  FirestoreAnnouncementRepository,
-  FirestoreCertificateRepository,
-  ensureFirestoreDatabaseSeeded
-} from './FirestoreRepository';
+  AppsScriptTeacherRepository,
+  AppsScriptClassRepository,
+  AppsScriptStudentRepository,
+  AppsScriptLessonRepository,
+  AppsScriptTaskRepository,
+  AppsScriptProgressRepository,
+  AppsScriptAssignmentRepository,
+  AppsScriptSubmissionRepository,
+  AppsScriptAnnouncementRepository,
+  AppsScriptCertificateRepository
+} from './AppsScriptRepository';
 import {
   ITeacherRepository,
   IClassRepository,
@@ -23,25 +22,28 @@ import {
   IAnnouncementRepository,
   ICertificateRepository
 } from './interfaces';
+import { ensureFirestoreDatabaseSeeded, purgeFirestoreDemoData } from './FirestoreRepository';
 
-// Initialize Cloud Firestore repositories as primary cloud database
-export const teacherRepo: ITeacherRepository = new FirestoreTeacherRepository();
-export const classRepo: IClassRepository = new FirestoreClassRepository();
-export const studentRepo: IStudentRepository = new FirestoreStudentRepository();
-export const lessonRepo: ILessonRepository = new FirestoreLessonRepository();
-export const taskRepo: ITaskRepository = new FirestoreTaskRepository();
-export const progressRepo: IProgressRepository = new FirestoreProgressRepository();
-export const assignmentRepo: IAssignmentRepository = new FirestoreAssignmentRepository();
-export const submissionRepo: ISubmissionRepository = new FirestoreSubmissionRepository();
-export const announcementRepo: IAnnouncementRepository = new FirestoreAnnouncementRepository();
-export const certificateRepo: ICertificateRepository = new FirestoreCertificateRepository();
+// Initialize Repositories: Google Apps Script + Cloud Firestore hybrid (cross-device source of truth, zero localStorage)
+export const teacherRepo: ITeacherRepository = new AppsScriptTeacherRepository();
+export const classRepo: IClassRepository = new AppsScriptClassRepository();
+export const studentRepo: IStudentRepository = new AppsScriptStudentRepository();
+export const lessonRepo: ILessonRepository = new AppsScriptLessonRepository();
+export const taskRepo: ITaskRepository = new AppsScriptTaskRepository();
+export const progressRepo: IProgressRepository = new AppsScriptProgressRepository();
+export const assignmentRepo: IAssignmentRepository = new AppsScriptAssignmentRepository();
+export const submissionRepo: ISubmissionRepository = new AppsScriptSubmissionRepository();
+export const announcementRepo: IAnnouncementRepository = new AppsScriptAnnouncementRepository();
+export const certificateRepo: ICertificateRepository = new AppsScriptCertificateRepository();
 
-// Trigger background seeding if empty
-ensureFirestoreDatabaseSeeded().catch(err => {
-  console.warn('[Firestore] Background initialization notice:', err);
+// Authenticate Firestore session and clean any legacy demo records
+ensureFirestoreDatabaseSeeded().then(() => {
+  purgeFirestoreDemoData().catch(() => {});
+}).catch(err => {
+  console.warn('[Firestore] Initialization notice:', err);
 });
 
 export * from './interfaces';
-export { ensureFirestoreDatabaseSeeded } from './FirestoreRepository';
+export { ensureFirestoreDatabaseSeeded, purgeFirestoreDemoData } from './FirestoreRepository';
 export { resetAllDataToSeed } from './LocalStorageRepository';
 

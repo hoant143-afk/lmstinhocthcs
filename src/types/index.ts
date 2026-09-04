@@ -1,6 +1,7 @@
 // Core Types for Smart Blended LMS
 
 export type UserRole = 'ROLE_TEACHER' | 'ROLE_STUDENT';
+export type AuthProviderType = 'local' | 'google' | 'local_google';
 
 export interface Teacher {
   id: string;
@@ -12,6 +13,8 @@ export interface Teacher {
   schoolName?: string;
   subject?: string;
   createdAt?: string;
+  googleSub?: string;
+  authProvider?: AuthProviderType;
 }
 
 export interface TeacherLoginDto {
@@ -27,6 +30,31 @@ export interface TeacherRegisterDto {
   subject?: string;
   title?: string;
   avatarUrl?: string;
+  googleSub?: string;
+  authProvider?: AuthProviderType;
+}
+
+export interface GoogleAuthDto {
+  credential: string;
+  role?: 'teacher' | 'student';
+}
+
+export interface GoogleAuthResponse {
+  success: boolean;
+  token?: string;
+  data?: {
+    token: string;
+    user: {
+      id: string;
+      fullName: string;
+      email: string;
+      avatarUrl?: string;
+      role: 'teacher' | 'student';
+      authProvider?: AuthProviderType;
+    };
+  };
+  error?: string;
+  errorCode?: string;
 }
 
 export interface ClassEntity {
@@ -50,19 +78,86 @@ export interface ClassEntity {
 
 export interface Student {
   id: string;
-  classId: string;
   fullName: string;
-  joinedAt: string;
-  status: 'active' | 'inactive';
+  email: string;
+  passwordHash?: string;
   avatarUrl?: string;
-  email?: string;
+  status: 'active' | 'inactive';
+  emailVerified?: boolean;
+  createdAt: string;
+  updatedAt?: string;
+  lastLoginAt?: string;
+  googleSub?: string;
+  authProvider?: AuthProviderType;
+  // Legacy / backwards compatibility fields
+  classId?: string;
+  joinedAt?: string;
 }
 
-export interface StudentSession {
+export interface Enrollment {
+  id: string;
   studentId: string;
   classId: string;
+  status: 'active' | 'dropped';
+  enrolledAt: string;
+}
+
+export interface SessionEntity {
+  id: string;
+  token: string;
+  actorType: 'teacher' | 'student';
+  actorId: string;
+  expiresAt: string;
+  createdAt: string;
+  lastUsedAt: string;
+  status: 'active' | 'revoked' | 'expired';
+}
+
+export type StudentSessionEntity = SessionEntity;
+
+export interface StudentSession {
+  token: string;
+  studentId: string;
   fullName: string;
-  joinedAt: string;
+  email: string;
+  avatarUrl?: string;
+  classId?: string;
+  joinedAt?: string;
+}
+
+export interface StudentRegisterDto {
+  fullName: string;
+  email: string;
+  password: string;
+}
+
+export interface StudentLoginDto {
+  email: string;
+  password: string;
+}
+
+export interface StudentAuthResponse {
+  token: string;
+  student: {
+    id: string;
+    fullName: string;
+    email: string;
+    avatarUrl?: string;
+    createdAt?: string;
+  };
+}
+
+export interface EnrolledClassInfo {
+  enrollment: Enrollment;
+  classEntity: ClassEntity;
+  teacher?: Teacher | null;
+  lessonCount: number;
+  completedLessonCount: number;
+  progressPercent: number;
+  nearestDeadline?: {
+    lessonTitle: string;
+    dueAt: string;
+  } | null;
 }
 
 export type LessonStatus = 'draft' | 'published' | 'active' | 'ended';

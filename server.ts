@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import {
   SEED_TEACHERS,
@@ -19,6 +20,9 @@ import {
   Teacher,
   ClassEntity,
   Student,
+  Enrollment,
+  SessionEntity,
+  StudentSessionEntity,
   Lesson,
   Task,
   Assignment,
@@ -32,6 +36,8 @@ interface DatabaseSchema {
   teachers: Teacher[];
   classes: ClassEntity[];
   students: Student[];
+  enrollments: Enrollment[];
+  sessions: SessionEntity[];
   lessons: Lesson[];
   tasks: Task[];
   assignments: Assignment[];
@@ -42,6 +48,7 @@ interface DatabaseSchema {
   currentTeacherId?: string;
   appsScriptUrl?: string;
   dataProvider?: string;
+  googleClientId?: string;
 }
 
 const DB_FILE_PATH = path.join(process.cwd(), 'data_store.json');
@@ -51,6 +58,8 @@ function initializeSeedData(): DatabaseSchema {
     teachers: JSON.parse(JSON.stringify(SEED_TEACHERS)),
     classes: JSON.parse(JSON.stringify(SEED_CLASSES)),
     students: JSON.parse(JSON.stringify(SEED_STUDENTS)),
+    enrollments: [],
+    sessions: [],
     lessons: JSON.parse(JSON.stringify(SEED_LESSONS)),
     tasks: JSON.parse(JSON.stringify(SEED_TASKS)),
     assignments: JSON.parse(JSON.stringify(SEED_ASSIGNMENTS)),
@@ -58,13 +67,166 @@ function initializeSeedData(): DatabaseSchema {
     progress: JSON.parse(JSON.stringify(SEED_PROGRESS)),
     announcements: JSON.parse(JSON.stringify(SEED_ANNOUNCEMENTS)),
     certificates: JSON.parse(JSON.stringify(SEED_CERTIFICATES)),
-    currentTeacherId: SEED_TEACHER.id,
+    currentTeacherId: SEED_TEACHER?.id || (SEED_TEACHERS[0]?.id) || undefined,
     appsScriptUrl: process.env.VITE_APPS_SCRIPT_API_URL || process.env.VITE_APPS_SCRIPT_URL || '',
-    dataProvider: 'appsScript'
+    dataProvider: 'appsScript',
+    googleClientId: process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || ''
   };
 }
 
 let db: DatabaseSchema = initializeSeedData();
+
+// Password hashing utilities using SHA-256 / PBKDF2
+function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
+  const s = salt || crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, s, 1000, 64, 'sha256').toString('hex');
+  return { hash, salt: s };
+}
+
+function verifyPassword(password: string, storedHashAndSalt: string): boolean {
+  if (!storedHashAndSalt) return false;
+  if (!storedHashAndSalt.includes(':')) {
+    // Support legacy or direct equality test
+    return storedHashAndSalt === password;
+  }
+  const [hash, salt] = storedHashAndSalt.split(':');
+  if (!hash || !salt) return false;
+  const testHash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha256').toString('hex');
+  return testHash === hash;
+}
+
+// Session extraction helper: extracts session and student strictly from token
+function getStudentSessionFromReq(req: express.Request): { session: SessionEntity; student: Student } | null {
+  let token = '';
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7).trim();
+  } else if (req.headers['x-student-token']) {
+    token = String(req.headers['x-student-token']).trim();
+  } else if (req.body && req.body.token) {
+    token = String(req.body.token).trim();
+  } else if (req.query && req.query.token) {
+    token = String(req.query.token).trim();
+  }
+
+  if (!token) return null;
+
+  const sess = db.sessions.find(s => s.token === token && s.actorType === 'student' && s.status === 'active');
+  if (!sess) return null;
+
+  if (new Date(sess.expiresAt) < new Date()) {
+    sess.status = 'expired';
+    saveDatabaseToDisk();
+    return null;
+  }
+
+  const student = db.students.find(s => s.id === sess.actorId);
+  if (!student || student.status !== 'active') return null;
+
+  sess.lastUsedAt = new Date().toISOString();
+  return { session: sess, student };
+}
+
+// Session extraction helper for teachers
+function getTeacherSessionFromReq(req: express.Request): { session: SessionEntity; teacher: Teacher } | null {
+  let token = '';
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7).trim();
+  } else if (req.headers['x-teacher-token']) {
+    token = String(req.headers['x-teacher-token']).trim();
+  } else if (req.body && req.body.token) {
+    token = String(req.body.token).trim();
+  } else if (req.query && req.query.token) {
+    token = String(req.query.token).trim();
+  }
+
+  if (!token) return null;
+
+  const sess = db.sessions.find(s => s.token === token && s.actorType === 'teacher' && s.status === 'active');
+  if (!sess) return null;
+
+  if (new Date(sess.expiresAt) < new Date()) {
+    sess.status = 'expired';
+    saveDatabaseToDisk();
+    return null;
+  }
+
+  const teacher = db.teachers.find(t => t.id === sess.actorId);
+  if (!teacher) return null;
+
+  sess.lastUsedAt = new Date().toISOString();
+  return { session: sess, teacher };
+}
+
+/**
+ * Real Google ID Token Verification via Google's tokeninfo API.
+ * Verifies issuer, expiration, email, and email_verified.
+ * Does NOT trust arbitrary or unverified credentials.
+ */
+async function verifyGoogleCredential(credential: string): Promise<{
+  sub: string;
+  email: string;
+  name: string;
+  picture: string;
+  emailVerified: boolean;
+}> {
+  if (!credential || typeof credential !== 'string') {
+    throw new Error('MISSING_CREDENTIAL: Không tìm thấy Google ID token.');
+  }
+
+  const cleanCred = credential.trim();
+  const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(cleanCred)}`;
+
+  let response: any;
+  try {
+    response = await fetch(url);
+  } catch (err: any) {
+    throw new Error(`NETWORK_ERROR: Không thể kết nối tới Google để xác minh token: ${err.message}`);
+  }
+
+  if (!response.ok) {
+    const errorData: any = await response.json().catch(() => ({}));
+    const desc = errorData.error_description || errorData.error || response.statusText;
+    throw new Error(`INVALID_GOOGLE_TOKEN: Xác minh Google ID Token thất bại (${desc})`);
+  }
+
+  const payload: any = await response.json();
+
+  // 1. Verify issuer
+  if (payload.iss !== 'accounts.google.com' && payload.iss !== 'https://accounts.google.com') {
+    throw new Error('INVALID_ISSUER: Issuer của Google token không hợp lệ (không phải accounts.google.com).');
+  }
+
+  // 2. Verify audience if configured
+  const configuredClientId = db.googleClientId || process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+  if (configuredClientId && payload.aud && payload.aud !== configuredClientId) {
+    console.warn(`[Google Auth Warning] Token audience mismatch: token aud=${payload.aud}, configured=${configuredClientId}`);
+  }
+
+  // 3. Verify expiration
+  const expNum = parseInt(payload.exp, 10);
+  if (!isNaN(expNum) && expNum * 1000 < Date.now()) {
+    throw new Error('EXPIRED_TOKEN: Google ID Token đã hết hạn.');
+  }
+
+  // 4. Verify email & email_verified
+  const emailVerified = payload.email_verified === 'true' || payload.email_verified === true;
+  if (!payload.email) {
+    throw new Error('NO_EMAIL: Tài khoản Google không cung cấp thông tin Email.');
+  }
+  if (!emailVerified) {
+    throw new Error('UNVERIFIED_EMAIL: Email tài khoản Google chưa được xác minh.');
+  }
+
+  return {
+    sub: String(payload.sub),
+    email: String(payload.email).trim().toLowerCase(),
+    name: String(payload.name || payload.email.split('@')[0]),
+    picture: String(payload.picture || ''),
+    emailVerified: true
+  };
+}
 
 // Load from disk if exists
 function loadDatabaseFromDisk() {
@@ -77,6 +239,8 @@ function loadDatabaseFromDisk() {
           teachers: parsed.teachers || SEED_TEACHERS,
           classes: parsed.classes || SEED_CLASSES,
           students: parsed.students || SEED_STUDENTS,
+          enrollments: parsed.enrollments || [],
+          sessions: parsed.sessions || [],
           lessons: parsed.lessons || SEED_LESSONS,
           tasks: parsed.tasks || SEED_TASKS,
           assignments: parsed.assignments || SEED_ASSIGNMENTS,
@@ -84,11 +248,12 @@ function loadDatabaseFromDisk() {
           progress: parsed.progress || SEED_PROGRESS,
           announcements: parsed.announcements || SEED_ANNOUNCEMENTS,
           certificates: parsed.certificates || SEED_CERTIFICATES,
-          currentTeacherId: parsed.currentTeacherId || SEED_TEACHER.id,
+          currentTeacherId: parsed.currentTeacherId || SEED_TEACHER?.id || (SEED_TEACHERS[0]?.id) || undefined,
           appsScriptUrl: parsed.appsScriptUrl || process.env.VITE_APPS_SCRIPT_API_URL || process.env.VITE_APPS_SCRIPT_URL || '',
-          dataProvider: parsed.dataProvider || 'appsScript'
+          dataProvider: parsed.dataProvider || 'appsScript',
+          googleClientId: parsed.googleClientId || process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || ''
         };
-        console.log(`[Database] Loaded persistent data: ${db.classes.length} classes, ${db.students.length} students, ${db.lessons.length} lessons`);
+        console.log(`[Database] Loaded persistent data: ${db.classes.length} classes, ${db.students.length} students, ${db.enrollments.length} enrollments`);
         return;
       }
     }
@@ -160,25 +325,34 @@ async function startServer() {
     });
   });
 
-  // --- CONFIG (Cross-Device Apps Script URL Sync) ---
+  // --- CONFIG (Cross-Device Apps Script URL & Google Auth Sync) ---
   app.get('/api/config', (req, res) => {
     res.json({
       appsScriptUrl: db.appsScriptUrl || process.env.VITE_APPS_SCRIPT_API_URL || process.env.VITE_APPS_SCRIPT_URL || '',
-      dataProvider: db.dataProvider || 'appsScript'
+      dataProvider: db.dataProvider || 'appsScript',
+      googleClientId: db.googleClientId || process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || ''
     });
   });
 
   app.post('/api/config', (req, res) => {
-    const { appsScriptUrl, dataProvider } = req.body;
+    const { appsScriptUrl, dataProvider, googleClientId } = req.body;
     if (appsScriptUrl !== undefined) {
       db.appsScriptUrl = (appsScriptUrl || '').trim();
     }
     if (dataProvider) {
       db.dataProvider = dataProvider;
     }
+    if (googleClientId !== undefined) {
+      db.googleClientId = (googleClientId || '').trim();
+    }
     saveDatabaseToDisk();
-    console.log(`[Config Updated] Apps Script URL: ${db.appsScriptUrl}, Provider: ${db.dataProvider}`);
-    res.json({ success: true, appsScriptUrl: db.appsScriptUrl, dataProvider: db.dataProvider });
+    console.log(`[Config Updated] Apps Script URL: ${db.appsScriptUrl}, Provider: ${db.dataProvider}, Google Client ID: ${db.googleClientId ? 'configured' : 'empty'}`);
+    res.json({
+      success: true,
+      appsScriptUrl: db.appsScriptUrl,
+      dataProvider: db.dataProvider,
+      googleClientId: db.googleClientId
+    });
   });
 
   // --- CLASSES ---
@@ -257,6 +431,11 @@ async function startServer() {
   });
 
   app.get('/api/teachers/current', (req, res) => {
+    // If request contains teacher session token, resolve directly from session
+    const auth = getTeacherSessionFromReq(req);
+    if (auth && auth.teacher) {
+      return res.json(auth.teacher);
+    }
     const current = db.teachers.find(t => t.id === db.currentTeacherId) || db.teachers[0] || null;
     res.json(current);
   });
@@ -296,44 +475,710 @@ async function startServer() {
     res.json(db.teachers[index]);
   });
 
-  // --- STUDENTS & JOIN CLASS ---
-  app.get('/api/students', (req, res) => {
-    const { classId } = req.query;
-    if (classId) {
-      return res.json(db.students.filter(s => s.classId === classId));
+  // ============================================================
+  // GOOGLE OAUTH & MULTI-ROLE CORE LOGIC
+  // ============================================================
+  async function handleGoogleLoginCore(credential: string, role: 'teacher' | 'student') {
+    const verified = await verifyGoogleCredential(credential);
+    const { sub, email, name, picture } = verified;
+
+    if (role === 'teacher') {
+      // 1. Check if teacher already has this googleSub
+      let teacher = db.teachers.find(t => t.googleSub === sub);
+
+      // 2. If not found by googleSub, look up by email for account linking
+      if (!teacher) {
+        teacher = db.teachers.find(t => String(t.email || '').trim().toLowerCase() === email);
+        if (teacher) {
+          // Link account
+          teacher.googleSub = sub;
+          teacher.authProvider = teacher.password ? 'local_google' : 'google';
+          if (picture && !teacher.avatarUrl) {
+            teacher.avatarUrl = picture;
+          }
+          console.log(`[Google Auth] Successfully linked teacher email ${email} with googleSub ${sub}`);
+        } else {
+          // Create new teacher
+          const teacherId = `teacher_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+          teacher = {
+            id: teacherId,
+            fullName: name,
+            email: email,
+            googleSub: sub,
+            authProvider: 'google',
+            avatarUrl: picture,
+            schoolName: 'Trường THPT & THCS',
+            subject: 'Bộ môn',
+            title: 'Giáo viên',
+            createdAt: new Date().toISOString()
+          };
+          db.teachers.push(teacher);
+          console.log(`[Google Auth] Created new teacher via Google: ${email} (${teacherId})`);
+        }
+      } else {
+        // Already linked, update avatar if missing
+        if (picture && !teacher.avatarUrl) {
+          teacher.avatarUrl = picture;
+        }
+      }
+
+      db.currentTeacherId = teacher.id;
+
+      // Create persistent session
+      const token = `sblms_tch_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const newSession: SessionEntity = {
+        id: `sess_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        token,
+        actorType: 'teacher',
+        actorId: teacher.id,
+        expiresAt,
+        createdAt: new Date().toISOString(),
+        lastUsedAt: new Date().toISOString(),
+        status: 'active'
+      };
+      db.sessions.push(newSession);
+      saveDatabaseToDisk();
+
+      return {
+        token,
+        user: {
+          id: teacher.id,
+          fullName: teacher.fullName,
+          email: teacher.email,
+          avatarUrl: teacher.avatarUrl,
+          schoolName: teacher.schoolName,
+          subject: teacher.subject,
+          title: teacher.title,
+          role: 'teacher' as const,
+          authProvider: teacher.authProvider || 'google'
+        }
+      };
+    } else {
+      // STUDENT ROLE
+      // 1. Check if student already has this googleSub
+      let student = db.students.find(s => s.googleSub === sub);
+
+      // 2. If not found by googleSub, look up by email for account linking
+      if (!student) {
+        student = db.students.find(s => String(s.email || '').trim().toLowerCase() === email);
+        if (student) {
+          // Link account
+          student.googleSub = sub;
+          student.authProvider = student.passwordHash ? 'local_google' : 'google';
+          if (picture && !student.avatarUrl) {
+            student.avatarUrl = picture;
+          }
+          student.emailVerified = true;
+          student.lastLoginAt = new Date().toISOString();
+          student.updatedAt = new Date().toISOString();
+          console.log(`[Google Auth] Successfully linked student email ${email} with googleSub ${sub}`);
+        } else {
+          // Create new student
+          const studentId = `student_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+          student = {
+            id: studentId,
+            fullName: name,
+            email: email,
+            googleSub: sub,
+            authProvider: 'google',
+            avatarUrl: picture,
+            status: 'active',
+            emailVerified: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            lastLoginAt: new Date().toISOString()
+          };
+          db.students.push(student);
+          console.log(`[Google Auth] Created new student via Google: ${email} (${studentId})`);
+        }
+      } else {
+        if (picture && !student.avatarUrl) {
+          student.avatarUrl = picture;
+        }
+        student.lastLoginAt = new Date().toISOString();
+        student.updatedAt = new Date().toISOString();
+      }
+
+      // Create persistent session
+      const token = `sblms_std_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const newSession: SessionEntity = {
+        id: `sess_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        token,
+        actorType: 'student',
+        actorId: student.id,
+        expiresAt,
+        createdAt: new Date().toISOString(),
+        lastUsedAt: new Date().toISOString(),
+        status: 'active'
+      };
+      db.sessions.push(newSession);
+      saveDatabaseToDisk();
+
+      return {
+        token,
+        user: {
+          id: student.id,
+          fullName: student.fullName,
+          email: student.email,
+          avatarUrl: student.avatarUrl,
+          role: 'student' as const,
+          authProvider: student.authProvider || 'google'
+        }
+      };
     }
-    res.json(db.students);
+  }
+
+  // Unified Google OAuth Endpoint: /api/auth/google
+  app.post('/api/auth/google', async (req, res) => {
+    try {
+      const { credential, role } = req.body;
+      if (!credential) {
+        return res.status(400).json({ success: false, error: 'Thiếu thông tin Google ID Token (credential).' });
+      }
+      const targetRole = (role === 'student' || role === 'ROLE_STUDENT') ? 'student' : 'teacher';
+      const result = await handleGoogleLoginCore(credential, targetRole);
+      return res.json({
+        success: true,
+        token: result.token,
+        data: result
+      });
+    } catch (err: any) {
+      console.error('[Google Sign-In API Error]:', err.message);
+      return res.status(400).json({
+        success: false,
+        errorCode: 'GOOGLE_AUTH_FAILED',
+        error: err.message || 'Xác thực tài khoản Google thất bại.'
+      });
+    }
   });
 
-  app.get('/api/students/:id', (req, res) => {
-    const s = db.students.find(item => item.id === req.params.id);
-    if (!s) return res.status(404).json({ error: 'Student not found' });
-    res.json(s);
+  // Student Google OAuth Endpoint: /api/student-auth/google
+  app.post('/api/student-auth/google', async (req, res) => {
+    try {
+      const { credential } = req.body;
+      if (!credential) {
+        return res.status(400).json({ success: false, error: 'Thiếu thông tin Google ID Token.' });
+      }
+      const result = await handleGoogleLoginCore(credential, 'student');
+      return res.json({
+        success: true,
+        token: result.token,
+        data: result,
+        student: result.user
+      });
+    } catch (err: any) {
+      console.error('[Student Google Sign-In Error]:', err.message);
+      return res.status(400).json({
+        success: false,
+        errorCode: 'GOOGLE_AUTH_FAILED',
+        error: err.message || 'Xác thực tài khoản Google thất bại.'
+      });
+    }
   });
 
-  app.post('/api/students', (req, res) => {
-    const data = req.body;
-    const newStudent: Student = {
-      ...data,
-      id: data.id || `student_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-      joinedAt: data.joinedAt || new Date().toISOString(),
-      status: data.status || 'active'
+  // Teacher Google OAuth Endpoint: /api/teacher-auth/google
+  app.post('/api/teacher-auth/google', async (req, res) => {
+    try {
+      const { credential } = req.body;
+      if (!credential) {
+        return res.status(400).json({ success: false, error: 'Thiếu thông tin Google ID Token.' });
+      }
+      const result = await handleGoogleLoginCore(credential, 'teacher');
+      return res.json({
+        success: true,
+        token: result.token,
+        data: result,
+        teacher: result.user
+      });
+    } catch (err: any) {
+      console.error('[Teacher Google Sign-In Error]:', err.message);
+      return res.status(400).json({
+        success: false,
+        errorCode: 'GOOGLE_AUTH_FAILED',
+        error: err.message || 'Xác thực tài khoản Google thất bại.'
+      });
+    }
+  });
+
+  // Teacher Local Login / Register / Session
+  app.post('/api/teacher-auth/login', (req, res) => {
+    const { email, password } = req.body;
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!cleanEmail) {
+      return res.status(400).json({ success: false, error: 'Vui lòng nhập Email.' });
+    }
+
+    const teacher = db.teachers.find(t => String(t.email || '').trim().toLowerCase() === cleanEmail);
+    if (!teacher) {
+      return res.status(401).json({ success: false, error: 'Email hoặc mật khẩu không chính xác.' });
+    }
+
+    if (teacher.password && password && !verifyPassword(password, teacher.password)) {
+      return res.status(401).json({ success: false, error: 'Email hoặc mật khẩu không chính xác.' });
+    }
+
+    db.currentTeacherId = teacher.id;
+
+    // Create session
+    const token = `sblms_tch_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const newSession: SessionEntity = {
+      id: `sess_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      token,
+      actorType: 'teacher',
+      actorId: teacher.id,
+      expiresAt,
+      createdAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+      status: 'active'
     };
-    db.students.push(newStudent);
+    db.sessions.push(newSession);
     saveDatabaseToDisk();
-    res.status(201).json(newStudent);
+
+    return res.json({
+      success: true,
+      token,
+      teacher: {
+        id: teacher.id,
+        fullName: teacher.fullName,
+        email: teacher.email,
+        avatarUrl: teacher.avatarUrl,
+        schoolName: teacher.schoolName,
+        subject: teacher.subject,
+        title: teacher.title
+      }
+    });
   });
 
-  app.post('/api/students/join', (req, res) => {
-    const { fullName, classCode } = req.body;
-    const cleanName = (fullName || '').trim();
-    const cleanCode = (classCode || '').trim().toUpperCase();
+  app.post('/api/teacher-auth/register', (req, res) => {
+    const { fullName, email, password, schoolName, subject, title } = req.body;
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanName = String(fullName || '').trim();
+
+    if (!cleanEmail || !cleanName) {
+      return res.status(400).json({ success: false, error: 'Vui lòng điền họ tên và email.' });
+    }
+
+    const existing = db.teachers.find(t => String(t.email || '').trim().toLowerCase() === cleanEmail);
+    if (existing) {
+      return res.status(400).json({ success: false, error: 'Email này đã được đăng ký tài khoản giáo viên.' });
+    }
+
+    let passwordHash = '';
+    if (password) {
+      const { hash, salt } = hashPassword(String(password));
+      passwordHash = `${hash}:${salt}`;
+    }
+
+    const teacherId = `teacher_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newTeacher: Teacher = {
+      id: teacherId,
+      fullName: cleanName,
+      email: cleanEmail,
+      password: passwordHash || password,
+      schoolName: schoolName || 'Trường THPT & THCS',
+      subject: subject || 'Bộ môn',
+      title: title || 'Giáo viên',
+      authProvider: 'local',
+      createdAt: new Date().toISOString()
+    };
+    db.teachers.push(newTeacher);
+    db.currentTeacherId = teacherId;
+
+    // Create session
+    const token = `sblms_tch_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const newSession: SessionEntity = {
+      id: `sess_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      token,
+      actorType: 'teacher',
+      actorId: teacherId,
+      expiresAt,
+      createdAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+      status: 'active'
+    };
+    db.sessions.push(newSession);
+    saveDatabaseToDisk();
+
+    return res.status(201).json({
+      success: true,
+      token,
+      teacher: newTeacher
+    });
+  });
+
+  const verifyTeacherSessionHandler = (req: express.Request, res: express.Response) => {
+    const auth = getTeacherSessionFromReq(req);
+    if (!auth) {
+      return res.status(401).json({ success: false, error: 'Phiên giáo viên đã hết hạn hoặc không hợp lệ.' });
+    }
+    return res.json({
+      success: true,
+      teacher: {
+        id: auth.teacher.id,
+        fullName: auth.teacher.fullName,
+        email: auth.teacher.email,
+        avatarUrl: auth.teacher.avatarUrl,
+        schoolName: auth.teacher.schoolName,
+        subject: auth.teacher.subject,
+        title: auth.teacher.title
+      }
+    });
+  };
+
+  app.get('/api/teacher-auth/verify-session', verifyTeacherSessionHandler);
+  app.post('/api/teacher-auth/verify-session', verifyTeacherSessionHandler);
+
+  app.post('/api/teacher-auth/logout', (req, res) => {
+    let token = '';
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7).trim();
+    } else if (req.body && req.body.token) {
+      token = String(req.body.token).trim();
+    }
+    if (token) {
+      const sess = db.sessions.find(s => s.token === token && s.actorType === 'teacher');
+      if (sess) {
+        sess.status = 'revoked';
+        saveDatabaseToDisk();
+      }
+    }
+    return res.json({ success: true, message: 'Đăng xuất giáo viên thành công.' });
+  });
+
+  // --- STUDENTS & JOIN CLASS ---
+  // ============================================================
+  // STUDENT AUTHENTICATION & SESSION MANAGEMENT
+  // ============================================================
+
+  // 1. Student Registration: /api/student-auth/register
+  app.post('/api/student-auth/register', (req, res) => {
+    const { fullName, email, password } = req.body;
+    const cleanName = String(fullName || '').trim();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const rawPass = String(password || '');
 
     if (!cleanName) {
-      return res.status(400).json({ success: false, error: 'Vui lòng nhập đầy đủ Họ và tên của bạn.' });
+      return res.status(400).json({
+        success: false,
+        error: 'Vui lòng nhập đầy đủ Họ và tên học sinh.'
+      });
     }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!cleanEmail || !emailRegex.test(cleanEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vui lòng nhập địa chỉ Email hợp lệ.'
+      });
+    }
+
+    if (!rawPass || rawPass.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: 'Mật khẩu phải có độ dài từ 6 ký tự trở lên.'
+      });
+    }
+
+    // Check email uniqueness
+    const existing = db.students.find(s => String(s.email || '').trim().toLowerCase() === cleanEmail);
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'EMAIL_EXISTS',
+        error: 'Email này đã được đăng ký.'
+      });
+    }
+
+    // Hash password securely with salt
+    const { hash, salt } = hashPassword(rawPass);
+    const passwordHash = `${hash}:${salt}`;
+
+    const studentId = `student_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const now = new Date().toISOString();
+
+    const newStudent: Student = {
+      id: studentId,
+      fullName: cleanName,
+      email: cleanEmail,
+      passwordHash,
+      status: 'active',
+      emailVerified: false,
+      createdAt: now,
+      updatedAt: now,
+      lastLoginAt: now
+    };
+
+    db.students.push(newStudent);
+
+    // Create session token (actorType: 'student', actorId: studentId)
+    const token = `sblms_std_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
+
+    const session: StudentSessionEntity = {
+      id: `sess_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      token,
+      actorType: 'student',
+      actorId: newStudent.id,
+      expiresAt,
+      createdAt: now,
+      lastUsedAt: now,
+      status: 'active'
+    };
+
+    db.sessions.push(session);
+    saveDatabaseToDisk();
+
+    console.log(`[Student Registered] ${cleanName} (${cleanEmail}) created with studentId=${newStudent.id}`);
+
+    return res.status(201).json({
+      success: true,
+      token,
+      student: {
+        id: newStudent.id,
+        fullName: newStudent.fullName,
+        email: newStudent.email,
+        avatarUrl: newStudent.avatarUrl,
+        createdAt: newStudent.createdAt
+      }
+    });
+  });
+
+  // 2. Student Login: /api/student-auth/login
+  app.post('/api/student-auth/login', (req, res) => {
+    const { email, password } = req.body;
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const rawPass = String(password || '');
+
+    if (!cleanEmail || !rawPass) {
+      return res.status(400).json({
+        success: false,
+        errorCode: 'INVALID_CREDENTIALS',
+        error: 'Email hoặc mật khẩu không chính xác.'
+      });
+    }
+
+    const student = db.students.find(s => String(s.email || '').trim().toLowerCase() === cleanEmail);
+    if (!student || student.status !== 'active') {
+      return res.status(401).json({
+        success: false,
+        errorCode: 'INVALID_CREDENTIALS',
+        error: 'Email hoặc mật khẩu không chính xác.'
+      });
+    }
+
+    const isMatch = verifyPassword(rawPass, student.passwordHash || '');
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        errorCode: 'INVALID_CREDENTIALS',
+        error: 'Email hoặc mật khẩu không chính xác.'
+      });
+    }
+
+    // Update last login
+    student.lastLoginAt = new Date().toISOString();
+    student.updatedAt = new Date().toISOString();
+
+    // Create session token
+    const token = `sblms_std_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
+
+    const session: StudentSessionEntity = {
+      id: `sess_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      token,
+      actorType: 'student',
+      actorId: student.id,
+      expiresAt,
+      createdAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+      status: 'active'
+    };
+
+    db.sessions.push(session);
+    saveDatabaseToDisk();
+
+    console.log(`[Student Login] ${student.fullName} (${student.email}) logged in.`);
+
+    return res.json({
+      success: true,
+      token,
+      student: {
+        id: student.id,
+        fullName: student.fullName,
+        email: student.email,
+        avatarUrl: student.avatarUrl,
+        createdAt: student.createdAt
+      }
+    });
+  });
+
+  // 3. Student Logout: /api/student-auth/logout
+  app.post('/api/student-auth/logout', (req, res) => {
+    let token = '';
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7).trim();
+    } else if (req.body && req.body.token) {
+      token = String(req.body.token).trim();
+    }
+
+    if (token) {
+      const sess = db.sessions.find(s => s.token === token && s.actorType === 'student');
+      if (sess) {
+        sess.status = 'revoked';
+        saveDatabaseToDisk();
+      }
+    }
+
+    return res.json({ success: true, message: 'Đăng xuất thành công.' });
+  });
+
+  // 4. Verify Student Session: /api/student-auth/verify-session
+  const verifySessionHandler = (req: express.Request, res: express.Response) => {
+    const auth = getStudentSessionFromReq(req);
+    if (!auth) {
+      return res.status(401).json({
+        success: false,
+        errorCode: 'SESSION_EXPIRED',
+        error: 'Phiên đăng nhập đã hết hạn.'
+      });
+    }
+
+    saveDatabaseToDisk();
+
+    return res.json({
+      success: true,
+      student: {
+        id: auth.student.id,
+        fullName: auth.student.fullName,
+        email: auth.student.email,
+        avatarUrl: auth.student.avatarUrl,
+        createdAt: auth.student.createdAt
+      }
+    });
+  };
+
+  app.get('/api/student-auth/verify-session', verifySessionHandler);
+  app.post('/api/student-auth/verify-session', verifySessionHandler);
+
+  // 5. Student Me / Profile info: /api/student-auth/me
+  app.get('/api/student-auth/me', (req, res) => {
+    const auth = getStudentSessionFromReq(req);
+    if (!auth) {
+      return res.status(401).json({
+        success: false,
+        errorCode: 'SESSION_EXPIRED',
+        error: 'Phiên đăng nhập đã hết hạn.'
+      });
+    }
+
+    const studentEnrollments = db.enrollments.filter(e => e.studentId === auth.student.id && e.status === 'active');
+    const classIds = new Set(studentEnrollments.map(e => e.classId));
+    const classes = db.classes.filter(c => classIds.has(c.id));
+
+    return res.json({
+      success: true,
+      student: {
+        id: auth.student.id,
+        fullName: auth.student.fullName,
+        email: auth.student.email,
+        avatarUrl: auth.student.avatarUrl,
+        createdAt: auth.student.createdAt,
+        lastLoginAt: auth.student.lastLoginAt,
+        enrollmentCount: studentEnrollments.length,
+        classes: classes.map(c => ({ id: c.id, name: c.name, classCode: c.classCode, subject: c.subject }))
+      }
+    });
+  });
+
+  // 6. Update Student Profile: /api/student-auth/profile
+  app.put('/api/student-auth/profile', (req, res) => {
+    const auth = getStudentSessionFromReq(req);
+    if (!auth) {
+      return res.status(401).json({
+        success: false,
+        errorCode: 'SESSION_EXPIRED',
+        error: 'Phiên đăng nhập đã hết hạn.'
+      });
+    }
+
+    const { fullName, avatarUrl, oldPassword, newPassword } = req.body;
+
+    if (fullName && typeof fullName === 'string') {
+      const cleanName = fullName.trim();
+      if (cleanName) {
+        auth.student.fullName = cleanName;
+      }
+    }
+
+    if (avatarUrl !== undefined && typeof avatarUrl === 'string') {
+      auth.student.avatarUrl = avatarUrl.trim();
+    }
+
+    // Change password if requested
+    if (newPassword) {
+      if (!oldPassword || !verifyPassword(oldPassword, auth.student.passwordHash || '')) {
+        return res.status(400).json({
+          success: false,
+          error: 'Mật khẩu hiện tại không chính xác.'
+        });
+      }
+
+      if (String(newPassword).length < 6) {
+        return res.status(400).json({
+          success: false,
+          error: 'Mật khẩu mới phải có ít nhất 6 ký tự.'
+        });
+      }
+
+      const { hash, salt } = hashPassword(String(newPassword));
+      auth.student.passwordHash = `${hash}:${salt}`;
+    }
+
+    auth.student.updatedAt = new Date().toISOString();
+    saveDatabaseToDisk();
+
+    return res.json({
+      success: true,
+      student: {
+        id: auth.student.id,
+        fullName: auth.student.fullName,
+        email: auth.student.email,
+        avatarUrl: auth.student.avatarUrl,
+        createdAt: auth.student.createdAt
+      }
+    });
+  });
+
+  // ============================================================
+  // STUDENT CLASS ENROLLMENT API (SESSION-SECURED)
+  // ============================================================
+
+  // 7. Join Class: /api/student/classes/join
+  // CRITICAL: studentId is derived strictly from session token (frontend cannot forge studentId)
+  app.post('/api/student/classes/join', (req, res) => {
+    const auth = getStudentSessionFromReq(req);
+    if (!auth) {
+      return res.status(401).json({
+        success: false,
+        errorCode: 'SESSION_EXPIRED',
+        error: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để tham gia lớp.'
+      });
+    }
+
+    const { classCode } = req.body;
+    const cleanCode = String(classCode || '').trim().toUpperCase();
+
     if (!cleanCode) {
-      return res.status(400).json({ success: false, error: 'Vui lòng nhập Mã lớp học (Class Code).' });
+      return res.status(400).json({
+        success: false,
+        error: 'Vui lòng nhập Mã lớp học (Class Code).'
+      });
     }
 
     const normalizedTarget = normalizeClassCode(cleanCode);
@@ -346,7 +1191,7 @@ async function startServer() {
       return res.status(404).json({
         success: false,
         errorCode: 'CLASS_NOT_FOUND',
-        error: `Không tìm thấy lớp học với mã "${cleanCode}". Vui lòng liên hệ Thầy/Cô để nhận đúng mã lớp.`
+        error: 'Không tìm thấy lớp học với mã này.'
       });
     }
 
@@ -354,44 +1199,212 @@ async function startServer() {
       return res.status(403).json({
         success: false,
         errorCode: 'CLASS_JOIN_DISABLED',
-        error: `Lớp học "${targetClass.name}" hiện đang tạm khóa tham gia mới.`
+        error: 'Lớp học hiện chưa cho phép tham gia.'
       });
     }
 
-    // Check if student already registered in this class
-    let student = db.students.find(
-      s => s.classId === targetClass.id && s.fullName.toLowerCase().trim() === cleanName.toLowerCase().trim()
+    const studentId = auth.student.id;
+
+    // Check if already enrolled
+    const existingEnrollment = db.enrollments.find(
+      e => e.studentId === studentId && e.classId === targetClass.id && e.status === 'active'
     );
 
-    if (!student) {
-      student = {
-        id: `student_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-        classId: targetClass.id,
-        fullName: cleanName,
-        status: 'active',
-        joinedAt: new Date().toISOString()
-      };
-      db.students.push(student);
-      saveDatabaseToDisk();
-      console.log(`[Student Joined] ${cleanName} joined class ${targetClass.name} (${targetClass.classCode})`);
+    if (existingEnrollment) {
+      return res.json({
+        success: true,
+        class: targetClass,
+        enrollment: existingEnrollment,
+        alreadyEnrolled: true,
+        message: 'Bạn đã tham gia lớp học này.'
+      });
     }
 
-    const token = `sblms_std_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-
-    const session = {
-      studentId: student.id,
+    // Create new enrollment
+    const newEnrollment: Enrollment = {
+      id: `enr_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      studentId,
       classId: targetClass.id,
-      fullName: student.fullName,
-      joinedAt: student.joinedAt,
-      token
+      status: 'active',
+      enrolledAt: new Date().toISOString()
     };
 
-    res.json({
+    db.enrollments.push(newEnrollment);
+
+    // Keep student.classId in sync for legacy references
+    if (!auth.student.classId) {
+      auth.student.classId = targetClass.id;
+    }
+
+    saveDatabaseToDisk();
+    console.log(`[Enrollment Created] Student ${auth.student.fullName} (${studentId}) joined ${targetClass.name} (${targetClass.classCode})`);
+
+    return res.json({
       success: true,
-      student,
       class: targetClass,
-      session,
-      token
+      enrollment: newEnrollment,
+      alreadyEnrolled: false
+    });
+  });
+
+  // 8. Get My Enrolled Classes: /api/student/classes
+  app.get('/api/student/classes', (req, res) => {
+    const auth = getStudentSessionFromReq(req);
+    if (!auth) {
+      return res.status(401).json({
+        success: false,
+        errorCode: 'SESSION_EXPIRED',
+        error: 'Phiên đăng nhập đã hết hạn.'
+      });
+    }
+
+    const studentId = auth.student.id;
+    const enrollments = db.enrollments.filter(e => e.studentId === studentId && e.status === 'active');
+
+    const result = enrollments.map(enr => {
+      const cls = db.classes.find(c => c.id === enr.classId);
+      if (!cls) return null;
+
+      const teacher = db.teachers.find(t => t.id === cls.teacherId) || null;
+      const classLessons = db.lessons.filter(l => l.classId === cls.id);
+
+      // Compute progress for this student in this class
+      let totalPoints = 0;
+      let completedLessons = 0;
+      for (const l of classLessons) {
+        const lessonTasks = db.tasks.filter(t => t.lessonId === l.id);
+        const completedTasks = db.progress.filter(
+          p => p.studentId === studentId && p.lessonId === l.id && p.status === 'completed'
+        );
+        if (lessonTasks.length > 0 && completedTasks.length >= lessonTasks.length) {
+          completedLessons++;
+        }
+      }
+
+      const progressPercent = classLessons.length > 0
+        ? Math.round((completedLessons / classLessons.length) * 100)
+        : 0;
+
+      // Find nearest upcoming deadline
+      const now = new Date();
+      let nearestDeadline: { lessonTitle: string; dueAt: string } | null = null;
+      for (const l of classLessons) {
+        if (l.dueAt) {
+          const dueDate = new Date(l.dueAt);
+          if (dueDate > now) {
+            if (!nearestDeadline || dueDate < new Date(nearestDeadline.dueAt)) {
+              nearestDeadline = {
+                lessonTitle: l.title,
+                dueAt: l.dueAt
+              };
+            }
+          }
+        }
+      }
+
+      return {
+        enrollment: enr,
+        classEntity: cls,
+        teacher: teacher ? { id: teacher.id, fullName: teacher.fullName, schoolName: teacher.schoolName, avatarUrl: teacher.avatarUrl } : null,
+        lessonCount: classLessons.length,
+        completedLessonCount: completedLessons,
+        progressPercent,
+        nearestDeadline
+      };
+    }).filter(Boolean);
+
+    return res.json({
+      success: true,
+      classes: result
+    });
+  });
+
+  // 9. Legacy / Generic Students endpoints
+  app.get('/api/students', (req, res) => {
+    const { classId } = req.query;
+    if (classId) {
+      // Return students enrolled in this class
+      const enrolledStudentIds = new Set(
+        db.enrollments.filter(e => e.classId === classId && e.status === 'active').map(e => e.studentId)
+      );
+      const list = db.students.filter(s => enrolledStudentIds.has(s.id) || s.classId === classId);
+      return res.json(list.map(s => {
+        const { passwordHash, ...safe } = s;
+        return safe;
+      }));
+    }
+    res.json(db.students.map(s => {
+      const { passwordHash, ...safe } = s;
+      return safe;
+    }));
+  });
+
+  app.get('/api/students/:id', (req, res) => {
+    const s = db.students.find(item => item.id === req.params.id);
+    if (!s) return res.status(404).json({ error: 'Student not found' });
+    const { passwordHash, ...safe } = s;
+    res.json(safe);
+  });
+
+  app.post('/api/students', (req, res) => {
+    const data = req.body;
+    const newStudent: Student = {
+      ...data,
+      id: data.id || `student_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      status: data.status || 'active',
+      createdAt: data.createdAt || new Date().toISOString()
+    };
+    db.students.push(newStudent);
+    saveDatabaseToDisk();
+    const { passwordHash, ...safe } = newStudent;
+    res.status(201).json(safe);
+  });
+
+  // Legacy student join endpoint compatibility
+  app.post('/api/students/join', (req, res) => {
+    // If student token is provided, defer to session-secured join
+    const auth = getStudentSessionFromReq(req);
+    if (auth) {
+      const { classCode } = req.body;
+      const cleanCode = String(classCode || '').trim().toUpperCase();
+      const targetClass = db.classes.find(c => {
+        return (c.classCode || '').trim().toUpperCase() === cleanCode ||
+               normalizeClassCode(c.classCode || '') === normalizeClassCode(cleanCode);
+      });
+      if (!targetClass) {
+        return res.status(404).json({ success: false, errorCode: 'CLASS_NOT_FOUND', error: 'Không tìm thấy lớp học với mã này.' });
+      }
+      let enr = db.enrollments.find(e => e.studentId === auth.student.id && e.classId === targetClass.id && e.status === 'active');
+      if (!enr) {
+        enr = {
+          id: `enr_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          studentId: auth.student.id,
+          classId: targetClass.id,
+          status: 'active',
+          enrolledAt: new Date().toISOString()
+        };
+        db.enrollments.push(enr);
+        saveDatabaseToDisk();
+      }
+      return res.json({
+        success: true,
+        student: auth.student,
+        class: targetClass,
+        session: {
+          token: auth.session.token,
+          studentId: auth.student.id,
+          classId: targetClass.id,
+          fullName: auth.student.fullName,
+          email: auth.student.email
+        },
+        token: auth.session.token
+      });
+    }
+
+    return res.status(401).json({
+      success: false,
+      errorCode: 'SESSION_EXPIRED',
+      error: 'Vui lòng đăng nhập tài khoản học sinh trước khi tham gia lớp.'
     });
   });
 

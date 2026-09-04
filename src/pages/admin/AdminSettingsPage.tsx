@@ -1,18 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { resetAllDataToSeed } from '../../repositories/LocalStorageRepository';
 import { apiClient } from '../../services/apiClient';
 import { Card, CardHeader } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
-import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import {
   Settings,
   Database,
-  RefreshCw,
   UserCheck,
   ShieldAlert,
-  Sparkles,
   Save,
   Cloud,
   CheckCircle2,
@@ -22,7 +18,8 @@ import {
   ExternalLink,
   Code2,
   Zap,
-  Server
+  Server,
+  Globe
 } from 'lucide-react';
 
 const GOOGLE_APPS_SCRIPT_SAMPLE_CODE = `/**
@@ -142,7 +139,6 @@ function handleApiAction(action, data) {
     "students.join",
     "classes.getByCode",
     "system.setupDatabase",
-    "system.seedDemoData",
     "system.validateDatabase"
   ];
   
@@ -158,9 +154,6 @@ function handleApiAction(action, data) {
   }
   if (action === "system.setupDatabase") {
     return setupDatabase();
-  }
-  if (action === "system.seedDemoData") {
-    return seedDemoData();
   }
 
   // --- PUBLIC STUDENT JOIN CLASS API ---
@@ -184,6 +177,14 @@ function handleApiAction(action, data) {
       var cNorm = String(c.classCode || "").toUpperCase().replace(/[\\s\\-_]/g, "");
       var tNorm = cleanCode.replace(/[\\s\\-_]/g, "");
       return cNorm === tNorm;
+    });
+
+    Logger.log({
+      action: "students.join",
+      normalizedClassCode: cleanCode,
+      classesScanned: classes.length,
+      classFound: Boolean(targetClass),
+      classStatus: targetClass ? targetClass.status : null
     });
 
     if (!targetClass) {
@@ -308,8 +309,10 @@ function handleApiAction(action, data) {
   
   if (op === "getByCode") {
     var queryCode = String(data.classCode || "").trim().toUpperCase();
+    var queryNorm = queryCode.replace(/[\s\-_]/g, "");
     var itemByCode = rows.find(function(r) {
-      return String(r.classCode || "").trim().toUpperCase() === queryCode;
+      var rCode = String(r.classCode || "").trim().toUpperCase();
+      return rCode === queryCode || rCode.replace(/[\s\-_]/g, "") === queryNorm;
     });
     return itemByCode || null;
   }
@@ -444,7 +447,7 @@ function setupDatabase() {
     CLASSES: ["id", "teacherId", "name", "subject", "grade", "schoolYear", "description", "classCode", "status", "joinEnabled", "certificateEnabled", "scoringEnabled", "onlineRatio", "offlineRatio", "createdAt", "updatedAt"],
     STUDENTS: ["id", "classId", "fullName", "joinedAt", "status", "avatarUrl", "email"],
     ENROLLMENTS: ["id", "studentId", "classId", "status", "enrolledAt"],
-    SESSIONS: ["id", "studentId", "classId", "token", "createdAt"],
+    SESSIONS: ["id", "studentId", "classId", "token", "actorType", "createdAt"],
     LESSONS: ["id", "teacherId", "classId", "title", "description", "objectives", "status", "order", "sequentialLock", "scoringEnabled", "createdAt", "updatedAt"],
     TASKS: ["id", "lessonId", "classId", "phase", "type", "title", "description", "order", "required", "points", "estimatedMinutes", "settings", "createdAt", "updatedAt"],
     PROGRESS: ["id", "studentId", "lessonId", "taskId", "classId", "status", "score", "timeSpentSeconds", "lastPosition", "attempts", "completedAt", "updatedAt"],
@@ -467,60 +470,16 @@ function setupDatabase() {
   }
 
   return { ok: true, message: "Đã khởi tạo thành công 12 bảng dữ liệu trên Google Sheet!" };
-}
-
-function seedDemoData() {
-  setupDatabase();
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var classSheet = ss.getSheetByName("CLASSES");
-  var userSheet = ss.getSheetByName("USERS");
-
-  if (userSheet && userSheet.getLastRow() <= 1) {
-    appendRowData(userSheet, {
-      id: "teacher_demo_1",
-      fullName: "Thầy Nguyễn Văn Hoàng",
-      email: "hoang.nv@school.edu.vn",
-      schoolName: "THPT Chuyên Lê Hồng Phong",
-      subject: "Tin học & STEM",
-      title: "Tổ trưởng Chuyên môn",
-      avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-      createdAt: new Date().toISOString()
-    });
-  }
-
-  if (classSheet && classSheet.getLastRow() <= 1) {
-    appendRowData(classSheet, {
-      id: "class_demo_1",
-      teacherId: "teacher_demo_1",
-      name: "Lớp 10A1 - Tin học & Chuyển đổi số",
-      subject: "Tin học 10",
-      grade: "Lớp 10",
-      schoolYear: "2025 - 2026",
-      description: "Mô hình Blended Learning: 30% Tự học Online chống tua + 70% Thực hành sáng tạo tại lớp.",
-      classCode: "TIN10-A1",
-      status: "active",
-      joinEnabled: true,
-      certificateEnabled: true,
-      scoringEnabled: true,
-      onlineRatio: 30,
-      offlineRatio: 70,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
-  }
-
-  return { ok: true, message: "Đã nạp dữ liệu mẫu ban đầu (Lớp 10A1, Mã: TIN10-A1)!" };
 }`;
 
 export const AdminSettingsPage: React.FC = () => {
   const { teacher, updateTeacherProfile, refreshUserData } = useAuth();
   const { toastSuccess, toastWarning, toastInfo } = useToast();
 
-  const [fullName, setFullName] = useState(teacher?.fullName || 'Thầy Nguyễn Văn Hoàng');
-  const [email, setEmail] = useState(teacher?.email || 'hoang.nv@school.edu.vn');
-  const [schoolName, setSchoolName] = useState(teacher?.schoolName || 'THPT Chuyên Lê Hồng Phong');
-  const [subject, setSubject] = useState(teacher?.subject || 'Tin học');
-  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [fullName, setFullName] = useState(teacher?.fullName || '');
+  const [email, setEmail] = useState(teacher?.email || '');
+  const [schoolName, setSchoolName] = useState(teacher?.schoolName || '');
+  const [subject, setSubject] = useState(teacher?.subject || '');
 
   // Apps Script & Google Sheet API State
   const [apiUrl, setApiUrl] = useState<string>(apiClient.getApiUrl());
@@ -529,6 +488,49 @@ export const AdminSettingsPage: React.FC = () => {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [isCodeCopied, setIsCodeCopied] = useState<boolean>(false);
   const [showCode, setShowCode] = useState<boolean>(false);
+
+  // Google OAuth Client ID State
+  const [googleClientId, setGoogleClientId] = useState<string>(() => {
+    return (import.meta.env.VITE_GOOGLE_CLIENT_ID || localStorage.getItem('sblms_google_client_id') || '').trim();
+  });
+  const [isSavingGoogleClient, setIsSavingGoogleClient] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Load config from server
+    const loadServerConfig = async () => {
+      try {
+        const res = await fetch('/api/config');
+        if (res.ok) {
+          const cfg = await res.json();
+          if (cfg.googleClientId) {
+            setGoogleClientId(cfg.googleClientId);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load server config:', e);
+      }
+    };
+    loadServerConfig();
+  }, []);
+
+  const handleSaveGoogleClientId = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingGoogleClient(true);
+    try {
+      const clean = googleClientId.trim();
+      localStorage.setItem('sblms_google_client_id', clean);
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ googleClientId: clean })
+      });
+      toastSuccess('Đã lưu cấu hình Google OAuth Client ID thành công!');
+    } catch (err: any) {
+      toastWarning('Lưu cấu hình thất bại: ' + (err.message || 'Lỗi mạng'));
+    } finally {
+      setIsSavingGoogleClient(false);
+    }
+  };
 
   useEffect(() => {
     if (teacher) {
@@ -603,39 +605,11 @@ export const AdminSettingsPage: React.FC = () => {
     }
   };
 
-  const handleSeedSheet = async () => {
-    if (!apiUrl) {
-      toastWarning('Vui lòng cấu hình URL Web App trước.');
-      return;
-    }
-    setIsTesting(true);
-    try {
-      const res = await apiClient.seedDemoData();
-      if (res.success) {
-        toastSuccess('Đã nạp thành công bộ dữ liệu bài học mẫu vào Google Sheet!');
-      } else {
-        toastWarning(res.error || 'Nạp dữ liệu thất bại');
-      }
-    } catch (e: any) {
-      toastWarning(e.message);
-    } finally {
-      setIsTesting(false);
-    }
-  };
-
   const handleCopyCode = () => {
     navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_SAMPLE_CODE);
     setIsCodeCopied(true);
     toastInfo('Đã sao chép mã nguồn Google Apps Script vào Clipboard!');
     setTimeout(() => setIsCodeCopied(false), 3000);
-  };
-
-  const handleResetDatabase = () => {
-    resetAllDataToSeed();
-    toastSuccess('Đã khôi phục toàn bộ cơ sở dữ liệu mẫu ban đầu!');
-    setTimeout(() => {
-      window.location.reload();
-    }, 600);
   };
 
   return (
@@ -666,7 +640,7 @@ export const AdminSettingsPage: React.FC = () => {
                 <div className="text-base font-black text-slate-900 flex items-center gap-2">
                   {provider === 'appsScript' && apiClient.isAppsScriptConfigured()
                     ? 'Google Sheet Cloud Database (Trực Tuyến)'
-                    : 'LocalStorage Offline Repository (Demo Nhanh)'}
+                    : 'Bộ nhớ cục bộ (Local Storage)'}
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
                     provider === 'appsScript' && apiClient.isAppsScriptConfigured()
                       ? 'bg-emerald-100 text-emerald-800'
@@ -688,7 +662,7 @@ export const AdminSettingsPage: React.FC = () => {
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                Local Demo
+                Local Storage
               </button>
               <button
                 type="button"
@@ -761,15 +735,6 @@ export const AdminSettingsPage: React.FC = () => {
               leftIcon={<Server className="w-3.5 h-3.5 text-blue-600" />}
             >
               Khởi Tạo Cấu Trúc Bảng Sheet
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleSeedSheet}
-              leftIcon={<Sparkles className="w-3.5 h-3.5 text-amber-600" />}
-            >
-              Đồng Bộ Dữ Liệu Mẫu Vào Sheet
             </Button>
             <Button
               type="button"
@@ -873,37 +838,57 @@ export const AdminSettingsPage: React.FC = () => {
         </form>
       </Card>
 
-      {/* Local Demo Data Reset */}
-      <Card className="p-6 border-slate-200">
+      {/* Google Sign-In Real OAuth Configuration */}
+      <Card className="p-6 border-indigo-200 bg-gradient-to-br from-white to-indigo-50/20">
         <CardHeader
-          title="Khôi Phục Dữ Liệu Demo Cục Bộ"
-          subtitle="Đặt lại toàn bộ trạng thái bài học, tiến độ và lớp học mẫu về trạng thái gốc"
+          title="Cấu Hình Đăng Nhập Google Thật (Google OAuth 2.0 Client ID)"
+          subtitle="Cho phép Giáo viên và Học sinh đăng nhập trực tiếp bằng tài khoản Google thật an toàn"
         />
 
-        <div className="space-y-4 max-w-xl text-sm text-slate-600 mt-2">
-          <p className="text-xs text-slate-500 leading-relaxed">
-            Bạn có thể khôi phục dữ liệu mẫu ban đầu bất kỳ lúc nào để thực hiện kiểm thử quy trình học sinh và giáo viên.
-          </p>
+        <form onSubmit={handleSaveGoogleClientId} className="space-y-4 mt-4">
+          <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 text-blue-900 text-xs space-y-1.5">
+            <div className="flex items-center gap-2 font-bold text-sm text-blue-950">
+              <Globe className="w-4 h-4 text-blue-600" />
+              <span>Cơ chế xác thực tài khoản Google thật</span>
+            </div>
+            <p className="text-slate-600 leading-relaxed">
+              SMART BLENDED LMS sử dụng Google Identity Services (GIS). Khi người dùng nhấn nút &ldquo;Đăng nhập bằng Google&rdquo; hoặc &ldquo;Tiếp tục với Google&rdquo;, trình duyệt nhận Google ID Token (JWT) được Google ký số. Server sẽ kiểm tra chữ ký và trích xuất email, họ tên chuẩn xác từ Google.
+            </p>
+          </div>
 
-          <Button
-            variant="danger"
-            onClick={() => setIsResetConfirmOpen(true)}
-            leftIcon={<RefreshCw className="w-4 h-4" />}
-          >
-            Đặt Lại Dữ Liệu Demo Gốc
-          </Button>
-        </div>
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
+              Google Web Client ID
+            </label>
+            <input
+              type="text"
+              value={googleClientId}
+              onChange={e => setGoogleClientId(e.target.value)}
+              placeholder="VD: 1234567890-abcdef.apps.googleusercontent.com"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-blue-500 outline-none font-mono text-slate-800"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Lấy từ Google Cloud Console &gt; APIs &amp; Services &gt; Credentials &gt; OAuth 2.0 Client IDs (Loại: Web application).
+            </p>
+          </div>
+
+          <div className="pt-2 flex items-center gap-3">
+            <Button
+              type="submit"
+              isLoading={isSavingGoogleClient}
+              leftIcon={<Save className="w-4 h-4" />}
+            >
+              Lưu Cấu Hình Google OAuth
+            </Button>
+            {googleClientId && (
+              <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4" />
+                Đã cấu hình Client ID
+              </span>
+            )}
+          </div>
+        </form>
       </Card>
-
-      <ConfirmDialog
-        isOpen={isResetConfirmOpen}
-        onClose={() => setIsResetConfirmOpen(false)}
-        onConfirm={handleResetDatabase}
-        title="Khôi Phục Dữ Liệu Mẫu"
-        message="Hành động này sẽ xóa các lớp hoặc bài học tùy biến mà bạn đã tạo trong bộ nhớ cục bộ và nạp lại toàn bộ bộ bài học mẫu ban đầu."
-        confirmText="Xác Nhận Khôi Phục"
-        isDestructive
-      />
     </div>
   );
 };

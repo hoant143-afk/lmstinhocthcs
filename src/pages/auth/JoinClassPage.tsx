@@ -17,19 +17,14 @@ import {
   BookOpen,
   Copy,
   Check,
-  ShieldCheck,
   Search,
   Users,
   Layers,
-  ArrowUpRight,
-  Activity,
-  Server,
-  RefreshCw,
   CheckCircle2,
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  Info
+  AlertCircle,
+  LogIn,
+  UserPlus,
+  Loader2
 } from 'lucide-react';
 
 export const JoinClassPage: React.FC = () => {
@@ -37,19 +32,12 @@ export const JoinClassPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const initialCode = searchParams.get('code') || '';
 
-  const { loginAsStudent } = useAuth();
-  const { toastSuccess, toastError, toastInfo } = useToast();
+  const { student, studentSession, isAuthenticatedStudent } = useAuth();
+  const { toastSuccess, toastError, toastWarning, toastInfo } = useToast();
 
-  const [fullName, setFullName] = useState<string>('');
   const [classCode, setClassCode] = useState<string>(initialCode);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  // Connection diagnostics state
-  const [diagnostic, setDiagnostic] = useState<DiagnosticInfo>(apiClient.getDiagnosticInfo());
-  const [isHealthChecking, setIsHealthChecking] = useState<boolean>(false);
-  const [healthStatus, setHealthStatus] = useState<string | null>(null);
-  const [showDiagnosticDetails, setShowDiagnosticDetails] = useState<boolean>(false);
 
   // Available classes in system created by teachers
   const [availableClasses, setAvailableClasses] = useState<AvailableClassInfo[]>([]);
@@ -58,10 +46,6 @@ export const JoinClassPage: React.FC = () => {
 
   useEffect(() => {
     loadAvailableClasses();
-    const unsubscribe = apiClient.subscribeDiagnostics(info => {
-      setDiagnostic(info);
-    });
-    return () => unsubscribe();
   }, []);
 
   const loadAvailableClasses = async () => {
@@ -73,73 +57,52 @@ export const JoinClassPage: React.FC = () => {
     }
   };
 
-  const handleCheckHealth = async () => {
-    setIsHealthChecking(true);
-    setHealthStatus(null);
-    try {
-      const res = await apiClient.checkHealth();
-      if (res.ok) {
-        setHealthStatus(res.statusText || 'Kết nối máy chủ hoạt động tốt!');
-        toastSuccess('Máy chủ phản hồi tốt (status: ok)');
-      } else {
-        setHealthStatus(`Lỗi [${res.errorCode || 'API_ERROR'}]: ${res.error}`);
-        toastError(res.error || 'Kiểm tra máy chủ thất bại');
-      }
-    } catch (err: any) {
-      setHealthStatus(`Lỗi kết nối: ${err.message}`);
-      toastError('Không thể kết nối máy chủ');
-    } finally {
-      setIsHealthChecking(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleJoinClass = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
-    const cleanName = fullName.trim();
     const cleanCode = classCode.trim().toUpperCase();
-
-    if (!cleanName) {
-      setErrorMsg('Vui lòng nhập đầy đủ Họ và tên học sinh.');
-      toastError('Vui lòng nhập Họ và tên');
+    if (!cleanCode) {
+      setErrorMsg('Vui lòng nhập Mã lớp học (Class Code).');
+      toastError('Vui lòng nhập Mã lớp học');
       return;
     }
 
-    if (!cleanCode) {
-      setErrorMsg('Vui lòng nhập Mã lớp học (Class Code) do Thầy/Cô cung cấp.');
-      toastError('Vui lòng nhập Mã lớp học');
+    if (!isAuthenticatedStudent) {
+      toastInfo('Vui lòng đăng nhập tài khoản học sinh trước khi tham gia lớp.');
+      navigate(`/app/login?code=${cleanCode}`);
       return;
     }
 
     setIsLoading(true);
 
     try {
-      const res = await studentService.joinClass(cleanName, cleanCode);
-      if (res.success && res.session) {
-        await loginAsStudent(res.session);
-        toastSuccess(`Chào mừng ${res.session.fullName} đã vào bàn học sinh thành công!`);
+      const res = await studentService.joinClassWithCode(cleanCode);
+      if (res.success && res.class) {
+        if (res.alreadyEnrolled) {
+          toastWarning(`Bạn đã tham gia lớp "${res.class.name}" trước đó.`);
+        } else {
+          toastSuccess(`Đã tham gia lớp "${res.class.name}" thành công!`);
+        }
         navigate('/app');
       } else {
-        setErrorMsg(res.error || 'Không tìm thấy lớp học với mã này. Vui lòng kiểm tra lại mã lớp.');
-        toastError(res.error || 'Lỗi tham gia lớp');
+        const msg = res.error || 'Không tìm thấy lớp học với mã này. Vui lòng kiểm tra lại.';
+        setErrorMsg(msg);
+        toastError(msg);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Đã có lỗi xảy ra khi vào lớp.');
+      const msg = err.message || 'Đã có lỗi xảy ra khi vào lớp.';
+      setErrorMsg(msg);
+      toastError(msg);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSelectClassCode = (code: string, suggestedName?: string) => {
+  const handleSelectClassCode = (code: string) => {
     setClassCode(code);
-    if (suggestedName && !fullName) {
-      setFullName(suggestedName);
-    }
     setErrorMsg(null);
     toastInfo(`Đã chọn mã lớp: ${code}`);
-
-    // Scroll to top form smoothly on mobile
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -168,345 +131,173 @@ export const JoinClassPage: React.FC = () => {
       <div className="text-center space-y-3">
         <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-100/80 border border-emerald-200 text-emerald-800 text-xs font-bold shadow-2xs">
           <GraduationCap className="w-4 h-4 text-emerald-700" />
-          <span>Cổng Bàn Học Sinh & Làm Bài Tập</span>
+          <span>Cổng Bàn Học Sinh & Tham Gia Lớp Học</span>
         </div>
-        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-          Vào Bàn Học Sinh Bằng Mã Lớp
+        <h1 className="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight">
+          Tham Gia Lớp Học Mới
         </h1>
-        <p className="text-xs sm:text-sm text-slate-600 max-w-xl mx-auto leading-relaxed">
-          Học sinh cần nhập <strong>Họ tên</strong> và <strong>Mã lớp học (Class Code)</strong> do Giáo viên đã tạo và cung cấp để xem bài giảng, làm trắc nghiệm chống tua và nộp sản phẩm thực hành.
+        <p className="text-xs sm:text-sm text-slate-600 max-w-lg mx-auto">
+          {isAuthenticatedStudent
+            ? `Tài khoản: ${student?.fullName || studentSession?.fullName} (${student?.email || studentSession?.email}). Nhập mã lớp do Thầy/Cô cung cấp để vào lớp ngay.`
+            : 'Đăng ký hoặc đăng nhập tài khoản học sinh bằng Email & Mật khẩu để tham gia các lớp học mà không cần nhập lại họ tên.'}
         </p>
       </div>
 
-      {/* Main Form Box */}
-      <Card className="p-6 sm:p-8 shadow-sm border-slate-200 bg-white max-w-xl mx-auto">
-        {errorMsg && (
-          <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs sm:text-sm font-medium flex items-start gap-2.5">
-            <span className="text-base leading-none">⚠️</span>
-            <div className="flex-1">{errorMsg}</div>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-              1. Họ và tên học sinh <span className="text-rose-500">*</span>
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                <User className="w-4 h-4" />
+      {/* Main Join Card or Auth Prompt */}
+      {isAuthenticatedStudent ? (
+        <Card className="p-6 sm:p-8 max-w-xl mx-auto border-emerald-200 shadow-md">
+          <form onSubmit={handleJoinClass} className="space-y-4">
+            <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-sm">
+                {(student?.fullName || studentSession?.fullName || 'H').slice(0, 2).toUpperCase()}
               </div>
-              <input
-                id="input-student-fullname"
-                type="text"
-                required
-                placeholder="Ví dụ: Trần Minh Anh hoặc Lê Hoàng Nam..."
-                value={fullName}
-                onChange={e => setFullName(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition"
-              />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-bold text-slate-900 truncate">
+                  {student?.fullName || studentSession?.fullName}
+                </div>
+                <div className="text-xs text-slate-500 truncate">
+                  {student?.email || studentSession?.email}
+                </div>
+              </div>
+              <Link to="/app/profile" className="text-xs text-emerald-700 hover:underline font-semibold">
+                Đổi tài khoản
+              </Link>
             </div>
-            <p className="text-[11px] text-slate-400">Tên này sẽ hiển thị trong sổ điểm và trên Giấy chứng nhận của bạn.</p>
-          </div>
 
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
+            {errorMsg && (
+              <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                2. Mã lớp học (Class Code) <span className="text-rose-500">*</span>
+                Mã lớp học (Class Code) <span className="text-rose-500">*</span>
               </label>
-              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                Do Thầy/Cô cung cấp
-              </span>
-            </div>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                <KeyRound className="w-4 h-4" />
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  required
+                  placeholder="Ví dụ: BLN-7842 hoặc TIN10-A1..."
+                  value={classCode}
+                  onChange={e => setClassCode(e.target.value.toUpperCase())}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-sm font-mono uppercase font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 tracking-wider"
+                />
               </div>
-              <input
-                id="input-student-classcode"
-                type="text"
-                required
-                placeholder="Ví dụ: TIN10-A1 hoặc STEM-8921..."
-                value={classCode}
-                onChange={e => setClassCode(e.target.value.toUpperCase())}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm font-mono uppercase font-bold text-slate-900 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition tracking-wider"
-              />
             </div>
-            <p className="text-[11px] text-slate-400">
-              Nhập chính xác mã lớp học gồm chữ và số do Thầy/Cô đã tạo.
+
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={isLoading}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center gap-2"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Đang tham gia lớp...</span>
+                </>
+              ) : (
+                <>
+                  <span>Tham gia lớp học</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </Button>
+          </form>
+        </Card>
+      ) : (
+        <Card className="p-6 sm:p-8 max-w-xl mx-auto border-slate-200 shadow-md text-center space-y-6">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+            <GraduationCap className="w-8 h-8" />
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="text-xl font-bold text-slate-900">Yêu cầu đăng nhập học sinh</h2>
+            <p className="text-sm text-slate-500 max-w-sm mx-auto">
+              Học sinh cần đăng nhập bằng Email và Mật khẩu để tham gia lớp và lưu trữ kết quả học tập an toàn.
             </p>
           </div>
 
-          <Button
-            id="btn-submit-join"
-            type="submit"
-            size="lg"
-            variant="success"
-            isLoading={isLoading}
-            rightIcon={<ArrowRight className="w-4 h-4" />}
-            className="w-full text-sm font-bold shadow-sm pt-3 pb-3"
-          >
-            Vào Bàn Học Sinh & Bắt Đầu Học
-          </Button>
-        </form>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <Link to={`/app/login${classCode ? `?code=${classCode}` : ''}`}>
+              <Button variant="primary" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2">
+                <LogIn className="w-4 h-4" />
+                <span>Đăng nhập học sinh</span>
+              </Button>
+            </Link>
 
-        {/* Quick helper for demo */}
-        <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-          <span>Bạn là Giáo viên?</span>
-          <Link
-            to="/admin/login"
-            className="font-bold text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
-          >
-            <span>Tạo lớp học mới tại Cổng Giáo viên</span>
-            <ArrowUpRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
-      </Card>
-
-      {/* Connection Diagnostics Section */}
-      <div className="max-w-xl mx-auto">
-        <Card className="p-4 bg-slate-50/90 border-slate-200 text-xs text-slate-600 shadow-2xs space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 font-bold text-slate-800">
-              <Activity className="w-4 h-4 text-emerald-600" />
-              <span>Thông Tin Chẩn Đoán Kết Nối Máy Chủ</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowDiagnosticDetails(!showDiagnosticDetails)}
-              className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer"
-            >
-              <span>{showDiagnosticDetails ? 'Thu gọn' : 'Chi tiết'}</span>
-              {showDiagnosticDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-[11px]">
-            <div className="bg-white p-2 rounded-lg border border-slate-200">
-              <span className="text-slate-400 block">API Configured:</span>
-              <span className={`font-bold ${diagnostic.isConfigured ? 'text-emerald-700' : 'text-amber-600'}`}>
-                {diagnostic.isConfigured ? '✅ Có (Google Apps Script)' : '⚙️ Cục bộ / Node Server'}
-              </span>
-            </div>
-
-            <div className="bg-white p-2 rounded-lg border border-slate-200 truncate">
-              <span className="text-slate-400 block">API Endpoint:</span>
-              <span className="font-mono font-medium text-slate-700 truncate block" title={diagnostic.rawUrl}>
-                {diagnostic.maskedEndpoint}
-              </span>
-            </div>
-
-            <div className="bg-white p-2 rounded-lg border border-slate-200">
-              <span className="text-slate-400 block">Request Action:</span>
-              <span className="font-mono font-bold text-indigo-700">{diagnostic.action || 'system.health'}</span>
-            </div>
-
-            <div className="bg-white p-2 rounded-lg border border-slate-200">
-              <span className="text-slate-400 block">HTTP Status:</span>
-              <span className={`font-mono font-bold ${diagnostic.httpStatus === 200 ? 'text-emerald-700' : (diagnostic.httpStatus ? 'text-rose-600' : 'text-slate-500')}`}>
-                {diagnostic.httpStatus !== null ? `${diagnostic.httpStatus}` : 'Chưa gửi'}
-              </span>
-            </div>
-          </div>
-
-          {showDiagnosticDetails && (
-            <div className="space-y-2 pt-2 border-t border-slate-200/80 text-[11px]">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Content-Type:</span>
-                <span className="font-mono text-slate-700">{diagnostic.contentType || 'N/A'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">API Success:</span>
-                <span className={`font-bold ${diagnostic.success === true ? 'text-emerald-600' : (diagnostic.success === false ? 'text-rose-600' : 'text-slate-400')}`}>
-                  {diagnostic.success === true ? 'True' : (diagnostic.success === false ? 'False' : 'N/A')}
-                </span>
-              </div>
-              {diagnostic.errorCode && (
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Error Code:</span>
-                  <span className="font-mono font-bold text-rose-600">{diagnostic.errorCode}</span>
-                </div>
-              )}
-              {diagnostic.errorMessage && (
-                <div className="text-rose-600 bg-rose-50 p-2 rounded border border-rose-200">
-                  <strong>Thông điệp lỗi:</strong> {diagnostic.errorMessage}
-                </div>
-              )}
-              {diagnostic.responseSnippet && (
-                <div className="space-y-1">
-                  <span className="text-slate-400 block">Phản hồi gần nhất:</span>
-                  <pre className="p-2 bg-slate-900 text-slate-100 rounded text-[10px] overflow-x-auto max-h-24">
-                    {diagnostic.responseSnippet}
-                  </pre>
-                </div>
-              )}
-            </div>
-          )}
-
-          {healthStatus && (
-            <div className={`p-2 rounded-lg text-[11px] font-medium border flex items-center gap-2 ${
-              healthStatus.includes('Lỗi') ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-            }`}>
-              {healthStatus.includes('Lỗi') ? <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> : <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
-              <span>{healthStatus}</span>
-            </div>
-          )}
-
-          <div className="pt-1 flex items-center justify-end gap-2">
-            <Button
-              id="btn-check-server-health"
-              type="button"
-              size="xs"
-              variant="outline"
-              onClick={handleCheckHealth}
-              isLoading={isHealthChecking}
-              leftIcon={<RefreshCw className="w-3 h-3" />}
-            >
-              Kiểm tra kết nối máy chủ (system.health)
-            </Button>
+            <Link to={`/app/register${classCode ? `?code=${classCode}` : ''}`}>
+              <Button variant="outline" className="w-full border-emerald-300 text-emerald-700 hover:bg-emerald-50 flex items-center justify-center gap-2">
+                <UserPlus className="w-4 h-4" />
+                <span>Đăng ký mới</span>
+              </Button>
+            </Link>
           </div>
         </Card>
-      </div>
+      )}
 
-      {/* Available Classes Section Created by Teachers */}
-      <div className="space-y-4 pt-4">
+      {/* Available Classes Section */}
+      <div className="space-y-4 pt-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="space-y-1">
-            <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
-              <Layers className="w-5 h-5 text-emerald-600" />
-              <span>Danh Sách Các Lớp Học Hiện Có Do Giáo Viên Đã Tạo</span>
-            </h2>
-            <p className="text-xs text-slate-500">
-              Bấm vào thẻ lớp học bên dưới để tự động điền Mã lớp học vào ô nhập phía trên.
-            </p>
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Danh sách lớp học mở</h3>
+            <p className="text-xs text-slate-500">Các lớp học có sẵn trong hệ thống</p>
           </div>
 
-          {availableClasses.length > 2 && (
-            <div className="relative w-full sm:w-64">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Tìm tên lớp, môn, giáo viên..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-              />
-            </div>
-          )}
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Tìm kiếm lớp học..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+            />
+          </div>
         </div>
 
-        {filteredClasses.length === 0 ? (
-          <Card className="p-8 text-center bg-slate-50 border-dashed border-slate-200">
-            <School className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-            <p className="text-sm font-bold text-slate-700">Chưa tìm thấy lớp học phù hợp</p>
-            <p className="text-xs text-slate-500 mt-1">
-              Thầy/Cô có thể đăng nhập vào Cổng Quản trị để tạo thêm lớp học mới và chia sẻ mã lớp cho học sinh.
-            </p>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredClasses.map(item => {
-              const isSelected = classCode.trim().toUpperCase() === item.classEntity.classCode.toUpperCase();
-              return (
-                <div
-                  key={item.classEntity.id}
-                  onClick={() => handleSelectClassCode(item.classEntity.classCode)}
-                  className={`p-5 rounded-2xl border transition text-left cursor-pointer group relative flex flex-col justify-between ${
-                    isSelected
-                      ? 'border-emerald-500 bg-emerald-50/50 shadow-sm ring-2 ring-emerald-500/20'
-                      : 'border-slate-200 bg-white hover:border-emerald-400 hover:shadow-xs'
-                  }`}
-                >
-                  <div className="space-y-3">
-                    {/* Header Badges */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span className="inline-block px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-bold">
-                          {item.classEntity.grade} • {item.classEntity.subject}
-                        </span>
-                        <h3 className="text-sm sm:text-base font-black text-slate-900 group-hover:text-emerald-700 transition mt-1.5">
-                          {item.classEntity.name}
-                        </h3>
-                      </div>
-
-                      {/* Class Code Pill */}
-                      <div className="flex items-center gap-1 bg-emerald-100 border border-emerald-300 text-emerald-900 px-2.5 py-1 rounded-xl shrink-0">
-                        <span className="text-xs font-mono font-black tracking-wider">
-                          {item.classEntity.classCode}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => handleCopyCode(item.classEntity.classCode, e)}
-                          title="Sao chép mã lớp"
-                          className="p-1 hover:bg-emerald-200 rounded text-emerald-800 transition cursor-pointer"
-                        >
-                          {copiedCode === item.classEntity.classCode ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-700" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Teacher Info */}
-                    <div className="flex items-center gap-2.5 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <img
-                        src={item.teacher?.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
-                        alt={item.teacher?.fullName || 'Giáo viên'}
-                        className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-bold text-slate-800 truncate">
-                          {item.teacher?.fullName || 'Giáo viên bộ môn'}
-                        </div>
-                        <div className="text-[10px] text-slate-400 truncate">
-                          {item.teacher?.schoolName || 'Trường THPT'}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Description preview */}
-                    {item.classEntity.description && (
-                      <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
-                        {item.classEntity.description}
-                      </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {filteredClasses.map(item => (
+            <div
+              key={item.classEntity.id}
+              onClick={() => handleSelectClassCode(item.classEntity.classCode)}
+              className="p-4 rounded-xl border border-slate-200 hover:border-emerald-300 bg-white hover:bg-emerald-50/20 transition cursor-pointer flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                    {item.classEntity.classCode}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => handleCopyCode(item.classEntity.classCode, e)}
+                    className="p-1 text-slate-400 hover:text-emerald-700 rounded transition"
+                    title="Sao chép mã"
+                  >
+                    {copiedCode === item.classEntity.classCode ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
                     )}
-                  </div>
-
-                  {/* Footer Meta & 1-click select */}
-                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-3 text-slate-400 font-medium">
-                      <span className="flex items-center gap-1">
-                        <BookOpen className="w-3.5 h-3.5 text-slate-500" />
-                        <span>{item.lessonCount} bài học</span>
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Users className="w-3.5 h-3.5 text-slate-500" />
-                        <span>{item.studentCount} học sinh</span>
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSelectClassCode(item.classEntity.classCode)}
-                      className={`font-bold px-3 py-1 rounded-lg text-xs transition cursor-pointer ${
-                        isSelected
-                          ? 'bg-emerald-600 text-white'
-                          : 'bg-slate-100 text-slate-700 group-hover:bg-emerald-600 group-hover:text-white'
-                      }`}
-                    >
-                      {isSelected ? 'Đã Chọn Mã Lớp' : 'Chọn Mã Lớp Này'}
-                    </button>
-                  </div>
+                  </button>
                 </div>
-              );
-            })}
-          </div>
-        )}
+                <h4 className="font-bold text-slate-900 line-clamp-1">{item.classEntity.name}</h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {item.teacher?.fullName || 'Giáo viên'} • {item.lessonCount} bài học
+                </p>
+              </div>
+
+              <div className="pt-3 mt-2 border-t border-slate-100 flex items-center justify-between text-xs text-emerald-700 font-medium">
+                <span>Bấm để điền mã lớp</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 };
-

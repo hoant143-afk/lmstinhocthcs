@@ -27,8 +27,12 @@ export interface DiagnosticInfo {
 }
 
 export const ERROR_MESSAGES: Record<string, string> = {
-  CLASS_NOT_FOUND: 'Không tìm thấy mã lớp.',
-  CLASS_JOIN_DISABLED: 'Lớp hiện không cho phép tham gia.',
+  EMAIL_EXISTS: 'Email này đã được đăng ký.',
+  INVALID_CREDENTIALS: 'Email hoặc mật khẩu không chính xác.',
+  SESSION_EXPIRED: 'Phiên đăng nhập đã hết hạn.',
+  CLASS_NOT_FOUND: 'Không tìm thấy lớp học với mã này.',
+  ALREADY_ENROLLED: 'Bạn đã tham gia lớp học này.',
+  CLASS_JOIN_DISABLED: 'Lớp học hiện chưa cho phép tham gia.',
   API_UNREACHABLE: 'Không thể kết nối máy chủ.',
   API_NOT_CONFIGURED: 'Website chưa được cấu hình máy chủ dữ liệu.',
   UNAUTHORIZED_DEPLOYMENT: 'Máy chủ hiện chưa cho phép thiết bị này truy cập.',
@@ -211,14 +215,14 @@ export const apiClient = {
     this.setApiUrl(url);
   },
 
-  getDataProvider(): 'appsScript' | 'localStorage' {
+  getDataProvider(): 'appsScript' | 'firestore' {
     const url = this.getApiUrl();
-    if (!url) return 'localStorage';
+    if (!url) return 'firestore';
     const provider = localStorage.getItem(DATA_PROVIDER_STORAGE_KEY);
-    return provider === 'appsScript' ? 'appsScript' : 'appsScript';
+    return provider === 'appsScript' ? 'appsScript' : 'firestore';
   },
 
-  setDataProvider(provider: 'appsScript' | 'localStorage'): void {
+  setDataProvider(provider: 'appsScript' | 'firestore'): void {
     localStorage.setItem(DATA_PROVIDER_STORAGE_KEY, provider);
     fetch('/api/config', {
       method: 'POST',
@@ -284,15 +288,20 @@ export const apiClient = {
       });
 
       // Google Apps Script doPost receives text/plain to avoid CORS preflight OPTIONS block
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       const response = await fetch(url, {
         method: 'POST',
         mode: 'cors',
         redirect: 'follow',
+        signal: controller.signal,
         headers: {
           'Content-Type': 'text/plain;charset=utf-8'
         },
         body: payload
       });
+      clearTimeout(timeoutId);
 
       const httpStatus = response.status;
       const contentType = response.headers.get('content-type') || 'unknown';
@@ -329,22 +338,34 @@ export const apiClient = {
       }
 
       if (!response.ok) {
+        const errCode = 'HTTP_ERROR';
         updateDiagnostic({
           action,
           httpStatus,
           contentType,
           isJson: false,
           success: false,
-          errorCode: 'API_UNREACHABLE',
+          errorCode: errCode,
           errorMessage: `HTTP error! status: ${response.status}`,
           responseSnippet: snippet
         });
+        if (action === 'students.join' || process.env.NODE_ENV !== 'production') {
+          console.log('[apiClient:Instrument]', {
+            action,
+            targetHost: new URL(url).host,
+            httpStatus,
+            redirected: response.redirected,
+            contentType,
+            responsePreview: snippet.slice(0, 100),
+            parsedErrorCode: errCode
+          });
+        }
         return {
           success: false,
           httpStatus,
           contentType,
-          errorCode: 'API_UNREACHABLE',
-          error: ERROR_MESSAGES.API_UNREACHABLE
+          errorCode: errCode,
+          error: `Máy chủ trả về mã HTTP ${response.status}`
         };
       }
 
@@ -352,21 +373,33 @@ export const apiClient = {
       try {
         resJson = JSON.parse(rawText);
       } catch (parseErr) {
+        const errCode = 'NON_JSON_RESPONSE';
         updateDiagnostic({
           action,
           httpStatus,
           contentType,
           isJson: false,
           success: false,
-          errorCode: 'API_UNREACHABLE',
+          errorCode: errCode,
           errorMessage: 'Phản hồi từ máy chủ không phải là JSON hợp lệ.',
           responseSnippet: snippet
         });
+        if (action === 'students.join' || process.env.NODE_ENV !== 'production') {
+          console.log('[apiClient:Instrument]', {
+            action,
+            targetHost: new URL(url).host,
+            httpStatus,
+            redirected: response.redirected,
+            contentType,
+            responsePreview: snippet.slice(0, 100),
+            parsedErrorCode: errCode
+          });
+        }
         return {
           success: false,
           httpStatus,
           contentType,
-          errorCode: 'API_UNREACHABLE',
+          errorCode: errCode,
           error: ERROR_MESSAGES.API_UNREACHABLE,
           message: 'Phản hồi từ máy chủ không phải là JSON hợp lệ.'
         };
@@ -387,6 +420,7 @@ export const apiClient = {
           }
         }
 
+        const finalCode = mappedCode || 'API_ERROR';
         const friendlyMsg = mappedCode && ERROR_MESSAGES[mappedCode] ? ERROR_MESSAGES[mappedCode] : (rawError || 'Thao tác thất bại.');
 
         updateDiagnostic({
@@ -395,16 +429,28 @@ export const apiClient = {
           contentType,
           isJson: true,
           success: false,
-          errorCode: mappedCode || 'API_ERROR',
+          errorCode: finalCode,
           errorMessage: friendlyMsg,
           responseSnippet: snippet
         });
+
+        if (action === 'students.join' || process.env.NODE_ENV !== 'production') {
+          console.log('[apiClient:Instrument]', {
+            action,
+            targetHost: new URL(url).host,
+            httpStatus,
+            redirected: response.redirected,
+            contentType,
+            responsePreview: snippet.slice(0, 100),
+            parsedErrorCode: finalCode
+          });
+        }
 
         return {
           ...resJson,
           httpStatus,
           contentType,
-          errorCode: mappedCode,
+          errorCode: finalCode,
           error: friendlyMsg
         };
       }
@@ -421,6 +467,18 @@ export const apiClient = {
         responseSnippet: snippet
       });
 
+      if (action === 'students.join' || process.env.NODE_ENV !== 'production') {
+        console.log('[apiClient:Instrument]', {
+          action,
+          targetHost: new URL(url).host,
+          httpStatus,
+          redirected: response.redirected,
+          contentType,
+          responsePreview: snippet.slice(0, 100),
+          parsedErrorCode: null
+        });
+      }
+
       return {
         ...resJson,
         httpStatus,
@@ -428,8 +486,8 @@ export const apiClient = {
       };
     } catch (err: any) {
       console.error(`API call failed for action [${action}]:`, err);
-      const isNetworkError = err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError');
-      const errCode = isNetworkError ? 'API_UNREACHABLE' : 'API_ERROR';
+      const isNetworkError = err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError') || err.name === 'TypeError';
+      const errCode = isNetworkError ? 'NETWORK_ERROR' : 'API_ERROR';
       const friendlyMsg = isNetworkError ? ERROR_MESSAGES.API_UNREACHABLE : (err.message || 'Lỗi kết nối máy chủ.');
 
       updateDiagnostic({
@@ -440,8 +498,20 @@ export const apiClient = {
         success: false,
         errorCode: errCode,
         errorMessage: friendlyMsg,
-        responseSnippet: err.message || 'Network exception'
+        responseSnippet: err.message
       });
+
+      if (action === 'students.join' || process.env.NODE_ENV !== 'production') {
+        console.log('[apiClient:Instrument]', {
+          action,
+          targetHost: url ? (function() { try { return new URL(url).host; } catch { return 'unknown'; } })() : 'none',
+          httpStatus: null,
+          redirected: false,
+          contentType: 'none',
+          responsePreview: err.message || '',
+          parsedErrorCode: errCode
+        });
+      }
 
       return {
         success: false,
@@ -547,6 +617,23 @@ export const apiClient = {
 
   async validateDatabase(): Promise<ApiResponse> {
     return this.request('system.validateDatabase', {});
+  },
+
+  /**
+   * Generic POST method for server API routes (e.g. /api/student-auth/*, /api/student/*)
+   */
+  async post<T = any>(endpoint: string, data: any = {}, customHeaders: Record<string, string> = {}): Promise<T> {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...customHeaders
+      },
+      body: JSON.stringify(data)
+    });
+
+    const json = await res.json();
+    return json as T;
   }
 };
 

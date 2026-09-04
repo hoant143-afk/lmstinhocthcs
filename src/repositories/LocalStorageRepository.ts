@@ -22,20 +22,6 @@ import {
   ICertificateRepository,
   ITeacherRepository
 } from './interfaces';
-import {
-  SEED_TEACHER,
-  SEED_TEACHERS,
-  SEED_CLASSES,
-  SEED_STUDENTS,
-  SEED_LESSONS,
-  SEED_TASKS,
-  SEED_ASSIGNMENTS,
-  SEED_SUBMISSIONS,
-  SEED_PROGRESS,
-  SEED_ANNOUNCEMENTS,
-  SEED_CERTIFICATES
-} from '../data/seedData';
-
 const STORAGE_KEYS = {
   TEACHER: 'sb_lms_teacher_v1',
   TEACHERS: 'sb_lms_teachers_list_v1',
@@ -51,6 +37,20 @@ const STORAGE_KEYS = {
   CERTIFICATES: 'sb_lms_certificates_v1'
 };
 
+const KNOWN_DEMO_IDS = new Set([
+  'teacher_01', 'teacher_02', 'teacher_demo_1',
+  'class_10a1', 'class_11a3', 'class_demo_1', 'TIN10-A1', 'ROBOT11-A3',
+  'std_01', 'std_02', 'std_03', 'std_04', 'std_05', 'std_06', 'std_07', 'std_08', 'std_09', 'std_10',
+  'lesson_01', 'lesson_02', 'lesson_03', 'lesson_04',
+  'task_01_video', 'task_01_quiz', 'task_01_project',
+  'task_02_video', 'task_02_quiz', 'task_02_project',
+  'task_03_video', 'task_03_quiz', 'task_03_project',
+  'task_04_video', 'task_04_quiz', 'task_04_project',
+  'asg_01', 'asg_02', 'asg_03',
+  'anc_01', 'anc_02',
+  'cert_01', 'cert_02'
+]);
+
 function getItem<T>(key: string, defaultValue: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -58,7 +58,15 @@ function getItem<T>(key: string, defaultValue: T): T {
       localStorage.setItem(key, JSON.stringify(defaultValue));
       return defaultValue;
     }
-    return JSON.parse(raw) as T;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const filtered = parsed.filter((item: any) => !item || (!KNOWN_DEMO_IDS.has(item.id) && !KNOWN_DEMO_IDS.has(item.classCode)));
+      if (filtered.length !== parsed.length) {
+        localStorage.setItem(key, JSON.stringify(filtered));
+      }
+      return filtered as unknown as T;
+    }
+    return parsed as T;
   } catch (error) {
     console.error(`Failed to read ${key} from localStorage`, error);
     return defaultValue;
@@ -74,24 +82,14 @@ function setItem<T>(key: string, value: T): void {
 }
 
 export function resetAllDataToSeed(): void {
-  setItem(STORAGE_KEYS.TEACHER, SEED_TEACHER);
-  setItem(STORAGE_KEYS.TEACHERS, SEED_TEACHERS);
-  localStorage.removeItem(STORAGE_KEYS.CURRENT_TEACHER_ID);
-  setItem(STORAGE_KEYS.CLASSES, SEED_CLASSES);
-  setItem(STORAGE_KEYS.STUDENTS, SEED_STUDENTS);
-  setItem(STORAGE_KEYS.LESSONS, SEED_LESSONS);
-  setItem(STORAGE_KEYS.TASKS, SEED_TASKS);
-  setItem(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
-  setItem(STORAGE_KEYS.SUBMISSIONS, SEED_SUBMISSIONS);
-  setItem(STORAGE_KEYS.PROGRESS, SEED_PROGRESS);
-  setItem(STORAGE_KEYS.ANNOUNCEMENTS, SEED_ANNOUNCEMENTS);
-  setItem(STORAGE_KEYS.CERTIFICATES, SEED_CERTIFICATES);
+  // Production: completely wipe local storage without inserting demo data
+  Object.values(STORAGE_KEYS).forEach(k => localStorage.removeItem(k));
 }
 
 // 1. Teacher Repository
 export class LocalStorageTeacherRepository implements ITeacherRepository {
   async getAll(): Promise<Teacher[]> {
-    return getItem<Teacher[]>(STORAGE_KEYS.TEACHERS, SEED_TEACHERS);
+    return getItem<Teacher[]>(STORAGE_KEYS.TEACHERS, []);
   }
 
   async getById(id: string): Promise<Teacher | null> {
@@ -162,7 +160,7 @@ export class LocalStorageTeacherRepository implements ITeacherRepository {
 // 2. Class Repository
 export class LocalStorageClassRepository implements IClassRepository {
   async getAll(): Promise<ClassEntity[]> {
-    return getItem<ClassEntity[]>(STORAGE_KEYS.CLASSES, SEED_CLASSES);
+    return getItem<ClassEntity[]>(STORAGE_KEYS.CLASSES, []);
   }
 
   async getAllByTeacher(teacherId: string): Promise<ClassEntity[]> {
@@ -171,18 +169,18 @@ export class LocalStorageClassRepository implements IClassRepository {
   }
 
   async getById(id: string): Promise<ClassEntity | null> {
-    const classes = getItem<ClassEntity[]>(STORAGE_KEYS.CLASSES, SEED_CLASSES);
+    const classes = getItem<ClassEntity[]>(STORAGE_KEYS.CLASSES, []);
     return classes.find(c => c.id === id) || null;
   }
 
   async getByCode(classCode: string): Promise<ClassEntity | null> {
-    const classes = getItem<ClassEntity[]>(STORAGE_KEYS.CLASSES, SEED_CLASSES);
+    const classes = getItem<ClassEntity[]>(STORAGE_KEYS.CLASSES, []);
     const normalized = classCode.trim().toUpperCase();
     return classes.find(c => c.classCode.trim().toUpperCase() === normalized) || null;
   }
 
   async create(classData: Omit<ClassEntity, 'id' | 'createdAt' | 'updatedAt'>): Promise<ClassEntity> {
-    const classes = getItem<ClassEntity[]>(STORAGE_KEYS.CLASSES, SEED_CLASSES);
+    const classes = getItem<ClassEntity[]>(STORAGE_KEYS.CLASSES, []);
     const now = new Date().toISOString();
     const newClass: ClassEntity = {
       ...classData,
@@ -196,7 +194,7 @@ export class LocalStorageClassRepository implements IClassRepository {
   }
 
   async update(id: string, classData: Partial<ClassEntity>): Promise<ClassEntity | null> {
-    const classes = getItem<ClassEntity[]>(STORAGE_KEYS.CLASSES, SEED_CLASSES);
+    const classes = getItem<ClassEntity[]>(STORAGE_KEYS.CLASSES, []);
     const index = classes.findIndex(c => c.id === id);
     if (index === -1) return null;
 
@@ -211,7 +209,7 @@ export class LocalStorageClassRepository implements IClassRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const classes = getItem<ClassEntity[]>(STORAGE_KEYS.CLASSES, SEED_CLASSES);
+    const classes = getItem<ClassEntity[]>(STORAGE_KEYS.CLASSES, []);
     const filtered = classes.filter(c => c.id !== id);
     setItem(STORAGE_KEYS.CLASSES, filtered);
     return true;
@@ -221,23 +219,23 @@ export class LocalStorageClassRepository implements IClassRepository {
 // 3. Student Repository
 export class LocalStorageStudentRepository implements IStudentRepository {
   async getByClassId(classId: string): Promise<Student[]> {
-    const students = getItem<Student[]>(STORAGE_KEYS.STUDENTS, SEED_STUDENTS);
+    const students = getItem<Student[]>(STORAGE_KEYS.STUDENTS, []);
     return students.filter(s => s.classId === classId);
   }
 
   async getById(id: string): Promise<Student | null> {
-    const students = getItem<Student[]>(STORAGE_KEYS.STUDENTS, SEED_STUDENTS);
+    const students = getItem<Student[]>(STORAGE_KEYS.STUDENTS, []);
     return students.find(s => s.id === id) || null;
   }
 
   async getByNameAndClass(fullName: string, classId: string): Promise<Student | null> {
-    const students = getItem<Student[]>(STORAGE_KEYS.STUDENTS, SEED_STUDENTS);
+    const students = getItem<Student[]>(STORAGE_KEYS.STUDENTS, []);
     const cleanName = fullName.trim().toLowerCase();
     return students.find(s => s.classId === classId && s.fullName.trim().toLowerCase() === cleanName) || null;
   }
 
   async create(studentData: Omit<Student, 'id' | 'joinedAt'>): Promise<Student> {
-    const students = getItem<Student[]>(STORAGE_KEYS.STUDENTS, SEED_STUDENTS);
+    const students = getItem<Student[]>(STORAGE_KEYS.STUDENTS, []);
     const newStudent: Student = {
       ...studentData,
       id: `student_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -249,7 +247,7 @@ export class LocalStorageStudentRepository implements IStudentRepository {
   }
 
   async update(id: string, data: Partial<Student>): Promise<Student | null> {
-    const students = getItem<Student[]>(STORAGE_KEYS.STUDENTS, SEED_STUDENTS);
+    const students = getItem<Student[]>(STORAGE_KEYS.STUDENTS, []);
     const index = students.findIndex(s => s.id === id);
     if (index === -1) return null;
     students[index] = { ...students[index], ...data };
@@ -258,7 +256,7 @@ export class LocalStorageStudentRepository implements IStudentRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const students = getItem<Student[]>(STORAGE_KEYS.STUDENTS, SEED_STUDENTS);
+    const students = getItem<Student[]>(STORAGE_KEYS.STUDENTS, []);
     const filtered = students.filter(s => s.id !== id);
     setItem(STORAGE_KEYS.STUDENTS, filtered);
     return true;
@@ -268,28 +266,28 @@ export class LocalStorageStudentRepository implements IStudentRepository {
 // 4. Lesson Repository
 export class LocalStorageLessonRepository implements ILessonRepository {
   async getAll(): Promise<Lesson[]> {
-    return getItem<Lesson[]>(STORAGE_KEYS.LESSONS, SEED_LESSONS);
+    return getItem<Lesson[]>(STORAGE_KEYS.LESSONS, []);
   }
 
   async getByClassId(classId: string): Promise<Lesson[]> {
-    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, SEED_LESSONS);
+    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, []);
     return lessons
       .filter(l => l.classId === classId)
       .sort((a, b) => a.order - b.order);
   }
 
   async getById(id: string): Promise<Lesson | null> {
-    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, SEED_LESSONS);
+    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, []);
     return lessons.find(l => l.id === id) || null;
   }
 
   async getTemplatesByTeacher(teacherId: string): Promise<Lesson[]> {
-    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, SEED_LESSONS);
+    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, []);
     return lessons.filter(l => l.teacherId === teacherId && l.isTemplate);
   }
 
   async create(lessonData: Omit<Lesson, 'id' | 'createdAt' | 'updatedAt'>): Promise<Lesson> {
-    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, SEED_LESSONS);
+    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, []);
     const now = new Date().toISOString();
     const newLesson: Lesson = {
       ...lessonData,
@@ -303,7 +301,7 @@ export class LocalStorageLessonRepository implements ILessonRepository {
   }
 
   async update(id: string, data: Partial<Lesson>): Promise<Lesson | null> {
-    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, SEED_LESSONS);
+    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, []);
     const index = lessons.findIndex(l => l.id === id);
     if (index === -1) return null;
     lessons[index] = {
@@ -316,7 +314,7 @@ export class LocalStorageLessonRepository implements ILessonRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, SEED_LESSONS);
+    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, []);
     const filtered = lessons.filter(l => l.id !== id);
     setItem(STORAGE_KEYS.LESSONS, filtered);
     return true;
@@ -341,7 +339,7 @@ export class LocalStorageLessonRepository implements ILessonRepository {
       updatedAt: now
     };
 
-    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, SEED_LESSONS);
+    const lessons = getItem<Lesson[]>(STORAGE_KEYS.LESSONS, []);
     lessons.push(newLesson);
     setItem(STORAGE_KEYS.LESSONS, lessons);
 
@@ -366,19 +364,19 @@ export class LocalStorageLessonRepository implements ILessonRepository {
 // 5. Task Repository
 export class LocalStorageTaskRepository implements ITaskRepository {
   async getByLessonId(lessonId: string): Promise<Task[]> {
-    const tasks = getItem<Task[]>(STORAGE_KEYS.TASKS, SEED_TASKS);
+    const tasks = getItem<Task[]>(STORAGE_KEYS.TASKS, []);
     return tasks
       .filter(t => t.lessonId === lessonId)
       .sort((a, b) => a.order - b.order);
   }
 
   async getById(id: string): Promise<Task | null> {
-    const tasks = getItem<Task[]>(STORAGE_KEYS.TASKS, SEED_TASKS);
+    const tasks = getItem<Task[]>(STORAGE_KEYS.TASKS, []);
     return tasks.find(t => t.id === id) || null;
   }
 
   async create(taskData: Omit<Task, 'id' | 'createdAt'>): Promise<Task> {
-    const tasks = getItem<Task[]>(STORAGE_KEYS.TASKS, SEED_TASKS);
+    const tasks = getItem<Task[]>(STORAGE_KEYS.TASKS, []);
     const newTask: Task = {
       ...taskData,
       id: `task_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -390,7 +388,7 @@ export class LocalStorageTaskRepository implements ITaskRepository {
   }
 
   async update(id: string, data: Partial<Task>): Promise<Task | null> {
-    const tasks = getItem<Task[]>(STORAGE_KEYS.TASKS, SEED_TASKS);
+    const tasks = getItem<Task[]>(STORAGE_KEYS.TASKS, []);
     const index = tasks.findIndex(t => t.id === id);
     if (index === -1) return null;
     tasks[index] = { ...tasks[index], ...data };
@@ -399,14 +397,14 @@ export class LocalStorageTaskRepository implements ITaskRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const tasks = getItem<Task[]>(STORAGE_KEYS.TASKS, SEED_TASKS);
+    const tasks = getItem<Task[]>(STORAGE_KEYS.TASKS, []);
     const filtered = tasks.filter(t => t.id !== id);
     setItem(STORAGE_KEYS.TASKS, filtered);
     return true;
   }
 
   async reorder(lessonId: string, taskIds: string[]): Promise<boolean> {
-    const tasks = getItem<Task[]>(STORAGE_KEYS.TASKS, SEED_TASKS);
+    const tasks = getItem<Task[]>(STORAGE_KEYS.TASKS, []);
     taskIds.forEach((id, index) => {
       const task = tasks.find(t => t.id === id && t.lessonId === lessonId);
       if (task) {
@@ -421,17 +419,17 @@ export class LocalStorageTaskRepository implements ITaskRepository {
 // 6. Progress Repository
 export class LocalStorageProgressRepository implements IProgressRepository {
   async getByStudentAndLesson(studentId: string, lessonId: string): Promise<TaskProgress[]> {
-    const progressList = getItem<TaskProgress[]>(STORAGE_KEYS.PROGRESS, SEED_PROGRESS);
+    const progressList = getItem<TaskProgress[]>(STORAGE_KEYS.PROGRESS, []);
     return progressList.filter(p => p.studentId === studentId && p.lessonId === lessonId);
   }
 
   async getByStudentAndTask(studentId: string, taskId: string): Promise<TaskProgress | null> {
-    const progressList = getItem<TaskProgress[]>(STORAGE_KEYS.PROGRESS, SEED_PROGRESS);
+    const progressList = getItem<TaskProgress[]>(STORAGE_KEYS.PROGRESS, []);
     return progressList.find(p => p.studentId === studentId && p.taskId === taskId) || null;
   }
 
   async getAllByStudent(studentId: string): Promise<TaskProgress[]> {
-    const progressList = getItem<TaskProgress[]>(STORAGE_KEYS.PROGRESS, SEED_PROGRESS);
+    const progressList = getItem<TaskProgress[]>(STORAGE_KEYS.PROGRESS, []);
     return progressList.filter(p => p.studentId === studentId);
   }
 
@@ -440,12 +438,12 @@ export class LocalStorageProgressRepository implements IProgressRepository {
     const students = await studentRepo.getByClassId(classId);
     const studentIds = new Set(students.map(s => s.id));
 
-    const progressList = getItem<TaskProgress[]>(STORAGE_KEYS.PROGRESS, SEED_PROGRESS);
+    const progressList = getItem<TaskProgress[]>(STORAGE_KEYS.PROGRESS, []);
     return progressList.filter(p => studentIds.has(p.studentId));
   }
 
   async upsert(progress: Omit<TaskProgress, 'id'> & { id?: string }): Promise<TaskProgress> {
-    const progressList = getItem<TaskProgress[]>(STORAGE_KEYS.PROGRESS, SEED_PROGRESS);
+    const progressList = getItem<TaskProgress[]>(STORAGE_KEYS.PROGRESS, []);
     const existingIndex = progressList.findIndex(
       p => p.studentId === progress.studentId && p.taskId === progress.taskId
     );
@@ -481,22 +479,22 @@ export class LocalStorageProgressRepository implements IProgressRepository {
 // 7. Assignment Repository
 export class LocalStorageAssignmentRepository implements IAssignmentRepository {
   async getByLessonId(lessonId: string): Promise<Assignment[]> {
-    const assignments = getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
+    const assignments = getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, []);
     return assignments.filter(a => a.lessonId === lessonId);
   }
 
   async getByTaskId(taskId: string): Promise<Assignment | null> {
-    const assignments = getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
+    const assignments = getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, []);
     return assignments.find(a => a.taskId === taskId) || null;
   }
 
   async getById(id: string): Promise<Assignment | null> {
-    const assignments = getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
+    const assignments = getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, []);
     return assignments.find(a => a.id === id) || null;
   }
 
   async create(assignmentData: Omit<Assignment, 'id'>): Promise<Assignment> {
-    const assignments = getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
+    const assignments = getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, []);
     const newAssignment: Assignment = {
       ...assignmentData,
       id: `assign_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
@@ -507,7 +505,7 @@ export class LocalStorageAssignmentRepository implements IAssignmentRepository {
   }
 
   async update(id: string, data: Partial<Assignment>): Promise<Assignment | null> {
-    const assignments = getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
+    const assignments = getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, []);
     const index = assignments.findIndex(a => a.id === id);
     if (index === -1) return null;
     assignments[index] = { ...assignments[index], ...data };
@@ -516,7 +514,7 @@ export class LocalStorageAssignmentRepository implements IAssignmentRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const assignments = getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, SEED_ASSIGNMENTS);
+    const assignments = getItem<Assignment[]>(STORAGE_KEYS.ASSIGNMENTS, []);
     const filtered = assignments.filter(a => a.id !== id);
     setItem(STORAGE_KEYS.ASSIGNMENTS, filtered);
     return true;
@@ -526,37 +524,37 @@ export class LocalStorageAssignmentRepository implements IAssignmentRepository {
 // 8. Submission Repository
 export class LocalStorageSubmissionRepository implements ISubmissionRepository {
   async getByAssignmentId(assignmentId: string): Promise<Submission[]> {
-    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_SUBMISSIONS);
+    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, []);
     return submissions.filter(s => s.assignmentId === assignmentId);
   }
 
   async getByLessonId(lessonId: string): Promise<Submission[]> {
-    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_SUBMISSIONS);
+    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, []);
     return submissions.filter(s => s.lessonId === lessonId);
   }
 
   async getByClassId(classId: string): Promise<Submission[]> {
-    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_SUBMISSIONS);
+    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, []);
     return submissions.filter(s => s.classId === classId);
   }
 
   async getByStudentId(studentId: string): Promise<Submission[]> {
-    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_SUBMISSIONS);
+    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, []);
     return submissions.filter(s => s.studentId === studentId);
   }
 
   async getByStudentAndTask(studentId: string, taskId: string): Promise<Submission | null> {
-    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_SUBMISSIONS);
+    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, []);
     return submissions.find(s => s.studentId === studentId && s.taskId === taskId) || null;
   }
 
   async getById(id: string): Promise<Submission | null> {
-    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_SUBMISSIONS);
+    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, []);
     return submissions.find(s => s.id === id) || null;
   }
 
   async create(subData: Omit<Submission, 'id' | 'submittedAt'>): Promise<Submission> {
-    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_SUBMISSIONS);
+    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, []);
     const existingIndex = submissions.findIndex(
       s => s.studentId === subData.studentId && s.taskId === subData.taskId
     );
@@ -584,7 +582,7 @@ export class LocalStorageSubmissionRepository implements ISubmissionRepository {
   }
 
   async grade(submissionId: string, score: number, feedback: string, teacherId: string): Promise<Submission | null> {
-    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, SEED_SUBMISSIONS);
+    const submissions = getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, []);
     const index = submissions.findIndex(s => s.id === submissionId);
     if (index === -1) return null;
 
@@ -604,24 +602,24 @@ export class LocalStorageSubmissionRepository implements ISubmissionRepository {
 // 9. Announcement Repository
 export class LocalStorageAnnouncementRepository implements IAnnouncementRepository {
   async getByClassId(classId: string): Promise<Announcement[]> {
-    const announcements = getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, SEED_ANNOUNCEMENTS);
+    const announcements = getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, []);
     return announcements.filter(a => a.classId === classId || a.classId === 'all');
   }
 
   async getByTeacherId(teacherId: string): Promise<Announcement[]> {
-    const announcements = getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, SEED_ANNOUNCEMENTS);
+    const announcements = getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, []);
     return announcements.filter(a => a.teacherId === teacherId);
   }
 
   async getForStudent(classId: string): Promise<Announcement[]> {
-    const announcements = getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, SEED_ANNOUNCEMENTS);
+    const announcements = getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, []);
     return announcements
       .filter(a => a.classId === classId || a.classId === 'all')
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
   async create(data: Omit<Announcement, 'id' | 'createdAt'>): Promise<Announcement> {
-    const announcements = getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, SEED_ANNOUNCEMENTS);
+    const announcements = getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, []);
     const newAnn: Announcement = {
       ...data,
       id: `ann_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -633,7 +631,7 @@ export class LocalStorageAnnouncementRepository implements IAnnouncementReposito
   }
 
   async delete(id: string): Promise<boolean> {
-    const announcements = getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, SEED_ANNOUNCEMENTS);
+    const announcements = getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, []);
     const filtered = announcements.filter(a => a.id !== id);
     setItem(STORAGE_KEYS.ANNOUNCEMENTS, filtered);
     return true;
@@ -643,22 +641,22 @@ export class LocalStorageAnnouncementRepository implements IAnnouncementReposito
 // 10. Certificate Repository
 export class LocalStorageCertificateRepository implements ICertificateRepository {
   async getByStudentId(studentId: string): Promise<Certificate[]> {
-    const certs = getItem<Certificate[]>(STORAGE_KEYS.CERTIFICATES, SEED_CERTIFICATES);
+    const certs = getItem<Certificate[]>(STORAGE_KEYS.CERTIFICATES, []);
     return certs.filter(c => c.studentId === studentId);
   }
 
   async getByClassId(classId: string): Promise<Certificate[]> {
-    const certs = getItem<Certificate[]>(STORAGE_KEYS.CERTIFICATES, SEED_CERTIFICATES);
+    const certs = getItem<Certificate[]>(STORAGE_KEYS.CERTIFICATES, []);
     return certs.filter(c => c.classId === classId);
   }
 
   async getById(id: string): Promise<Certificate | null> {
-    const certs = getItem<Certificate[]>(STORAGE_KEYS.CERTIFICATES, SEED_CERTIFICATES);
+    const certs = getItem<Certificate[]>(STORAGE_KEYS.CERTIFICATES, []);
     return certs.find(c => c.id === id) || null;
   }
 
   async create(certData: Omit<Certificate, 'id' | 'issuedAt'>): Promise<Certificate> {
-    const certs = getItem<Certificate[]>(STORAGE_KEYS.CERTIFICATES, SEED_CERTIFICATES);
+    const certs = getItem<Certificate[]>(STORAGE_KEYS.CERTIFICATES, []);
     const newCert: Certificate = {
       ...certData,
       id: `cert_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,

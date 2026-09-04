@@ -14,7 +14,8 @@ import {
   Award,
   ArrowRight,
   ShieldCheck,
-  CheckCircle2
+  CheckCircle2,
+  BookOpen
 } from 'lucide-react';
 
 export const StudentClassPage: React.FC = () => {
@@ -119,60 +120,72 @@ export const StudentClassPage: React.FC = () => {
       <div className="space-y-4">
         <h2 className="text-lg font-bold text-slate-900">Danh Sách Bài Học ({lessons.length})</h2>
 
-        <div className="grid grid-cols-1 gap-4">
-          {lessons.map((lesson, idx) => {
-            const pct = progressMap[lesson.id] || 0;
-            const isCompleted = pct === 100;
+        {lessons.length === 0 ? (
+          <Card className="p-8 text-center border-dashed border-slate-300">
+            <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+              <BookOpen className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-800 mb-1">Chưa có bài học nào được đăng</h3>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+              Thầy cô phụ trách lớp đang thiết kế bài giảng và bài tập thực hành. Vui lòng quay lại sau!
+            </p>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            {lessons.map((lesson, idx) => {
+              const pct = progressMap[lesson.id] || 0;
+              const isCompleted = pct === 100;
 
-            return (
-              <Card
-                key={lesson.id}
-                className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-emerald-400 transition group"
-              >
-                <div className="flex items-start gap-4">
-                  <div
-                    className={`w-10 h-10 rounded-xl font-bold flex items-center justify-center shrink-0 border ${
-                      isCompleted
-                        ? 'bg-emerald-500 text-white border-emerald-600'
-                        : 'bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : idx + 1}
-                  </div>
-
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-emerald-700">
-                        {pct}% Hoàn thành
-                      </span>
-                      {lesson.sequentialLock && (
-                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1">
-                          <ShieldCheck className="w-3 h-3 text-blue-600" />
-                          Khóa tuần tự
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-base font-bold text-slate-900 group-hover:text-emerald-700 transition">
-                      {lesson.title}
-                    </h3>
-                    <p className="text-xs text-slate-500 line-clamp-1">{lesson.description}</p>
-                    <ProgressBar percent={pct} size="xs" color="emerald" className="w-44 mt-2" />
-                  </div>
-                </div>
-
-                <Button
-                  size="sm"
-                  variant={isCompleted ? 'outline' : 'primary'}
-                  onClick={() => navigate(`/app/lesson/${lesson.id}`)}
-                  rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
-                  className="self-end sm:self-center"
+              return (
+                <Card
+                  key={lesson.id}
+                  className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-emerald-400 transition group"
                 >
-                  {isCompleted ? 'Xem lại' : pct > 0 ? 'Học tiếp' : 'Bắt đầu học'}
-                </Button>
-              </Card>
-            );
-          })}
-        </div>
+                  <div className="flex items-start gap-4">
+                    <div
+                      className={`w-10 h-10 rounded-xl font-bold flex items-center justify-center shrink-0 border ${
+                        isCompleted
+                          ? 'bg-emerald-500 text-white border-emerald-600'
+                          : 'bg-slate-100 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : idx + 1}
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-emerald-700">
+                          {pct}% Hoàn thành
+                        </span>
+                        {lesson.sequentialLock && (
+                          <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3 text-blue-600" />
+                            Khóa tuần tự
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="text-base font-bold text-slate-900 group-hover:text-emerald-700 transition">
+                        {lesson.title}
+                      </h3>
+                      <p className="text-xs text-slate-500 line-clamp-1">{lesson.description}</p>
+                      <ProgressBar percent={pct} size="xs" color="emerald" className="w-44 mt-2" />
+                    </div>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    variant={isCompleted ? 'outline' : 'primary'}
+                    onClick={() => navigate(`/app/lesson/${lesson.id}`)}
+                    rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
+                    className="self-end sm:self-center"
+                  >
+                    {isCompleted ? 'Xem lại' : pct > 0 ? 'Học tiếp' : 'Bắt đầu học'}
+                  </Button>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

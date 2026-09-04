@@ -7,6 +7,8 @@ import { Layout } from './components/layout/Layout';
 // Landing & Auth
 import { LandingPage } from './pages/landing/LandingPage';
 import { JoinClassPage } from './pages/auth/JoinClassPage';
+import { StudentLoginPage } from './pages/auth/StudentLoginPage';
+import { StudentRegisterPage } from './pages/auth/StudentRegisterPage';
 import { TeacherLoginPage } from './pages/auth/TeacherLoginPage';
 import { TeacherProtectedRoute } from './components/auth/TeacherProtectedRoute';
 import { StudentProtectedRoute } from './components/auth/StudentProtectedRoute';
@@ -27,6 +29,7 @@ import { StudentDashboardPage } from './pages/student/StudentDashboardPage';
 import { StudentClassPage } from './pages/student/StudentClassPage';
 import { StudentLessonPage } from './pages/student/StudentLessonPage';
 import { StudentProgressPage } from './pages/student/StudentProgressPage';
+import { StudentProfilePage } from './pages/student/StudentProfilePage';
 import { StudentCertificatePage } from './pages/student/StudentCertificatePage';
 
 export default function App() {
@@ -39,10 +42,17 @@ export default function App() {
               {/* Landing & Public Flow */}
               <Route index element={<LandingPage />} />
 
-              {/* Student App Flow */}
-              <Route path="app/join" element={<JoinClassPage />} />
+              {/* Student Authentication Flow */}
+              <Route path="app/login" element={<StudentLoginPage />} />
+              <Route path="app/register" element={<StudentRegisterPage />} />
+              <Route path="app/join" element={<Navigate to="/app" replace />} />
+
+              {/* Student Protected Flow */}
               <Route path="app" element={<StudentProtectedRoute />}>
                 <Route index element={<StudentDashboardPage />} />
+                <Route path="dashboard" element={<StudentDashboardPage />} />
+                <Route path="classes" element={<StudentDashboardPage />} />
+                <Route path="profile" element={<StudentProfilePage />} />
                 <Route path="class/:classId" element={<StudentClassPage />} />
                 <Route path="lesson/:lessonId" element={<StudentLessonPage />} />
                 <Route path="progress" element={<StudentProgressPage />} />

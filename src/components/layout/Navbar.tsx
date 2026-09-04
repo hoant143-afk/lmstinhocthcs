@@ -225,38 +225,52 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isMobileSidebar
               ) : (
                 studentSession ? (
                   <div className="flex items-center gap-2">
-                    <div className="w-9 h-9 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-xs shrink-0">
-                      {studentSession.fullName.slice(0, 2).toUpperCase()}
-                    </div>
-                    <div className="hidden lg:block text-left">
-                      <div className="text-xs font-bold text-slate-800 leading-tight truncate max-w-[140px]">
-                        {studentSession.fullName}
+                    <Link
+                      to="/app/profile"
+                      className="flex items-center gap-2 group p-1 rounded-xl hover:bg-slate-100 transition"
+                      title="Xem hồ sơ học sinh"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-xs shrink-0 ring-2 ring-emerald-100">
+                        {studentSession.fullName.slice(0, 2).toUpperCase()}
                       </div>
-                      <div className="text-[10px] text-slate-500 truncate max-w-[140px]">
-                        {currentClass?.name || 'Học sinh'}
+                      <div className="hidden lg:block text-left">
+                        <div className="text-xs font-bold text-slate-800 leading-tight truncate max-w-[140px] group-hover:text-emerald-700 transition">
+                          {studentSession.fullName}
+                        </div>
+                        <div className="text-[10px] text-slate-500 truncate max-w-[140px]">
+                          {studentSession.email || (currentClass?.name || 'Học sinh')}
+                        </div>
                       </div>
-                    </div>
+                    </Link>
                     <button
                       type="button"
-                      onClick={() => {
-                        logoutStudent();
-                        toastInfo('Đã rời phiên học sinh');
-                        navigate('/app/join');
+                      onClick={async () => {
+                        await logoutStudent();
+                        toastInfo('Đã đăng xuất tài khoản học sinh.');
+                        navigate('/app/login');
                       }}
-                      title="Rời phiên học sinh"
+                      title="Đăng xuất tài khoản học sinh"
                       className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
                     >
                       <LogOut className="w-4 h-4" />
                     </button>
                   </div>
                 ) : (
-                  <Link
-                    to="/app/join"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-bold transition shadow-2xs"
-                  >
-                    <GraduationCap className="w-3.5 h-3.5" />
-                    <span>Nhập Mã Lớp</span>
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to="/app/login"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-bold transition shadow-2xs"
+                    >
+                      <GraduationCap className="w-3.5 h-3.5" />
+                      <span>Đăng nhập</span>
+                    </Link>
+                    <Link
+                      to="/app/register"
+                      className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-300 text-emerald-700 hover:bg-emerald-50 text-xs font-bold transition shadow-2xs"
+                    >
+                      <span>Đăng ký</span>
+                    </Link>
+                  </div>
                 )
               )}
             </div>

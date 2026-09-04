@@ -7,7 +7,9 @@ import {
   PlusCircle,
   TrendingUp,
   Sparkles,
-  School
+  School,
+  User,
+  LogOut
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -16,7 +18,7 @@ interface StudentSidebarProps {
 }
 
 export const StudentSidebar: React.FC<StudentSidebarProps> = ({ onItemClick }) => {
-  const { currentClass, studentSession } = useAuth();
+  const { currentClass, studentSession, logoutStudent } = useAuth();
 
   const navItems = [
     {
@@ -38,10 +40,10 @@ export const StudentSidebar: React.FC<StudentSidebarProps> = ({ onItemClick }) =
       icon: <TrendingUp className="w-4 h-4" />
     },
     {
-      id: 'student-join-class',
-      to: '/app/join',
-      label: 'Tham gia Lớp khác',
-      icon: <PlusCircle className="w-4 h-4" />
+      id: 'student-profile',
+      to: '/app/profile',
+      label: 'Hồ sơ cá nhân',
+      icon: <User className="w-4 h-4" />
     }
   ];
 
@@ -59,7 +61,7 @@ export const StudentSidebar: React.FC<StudentSidebarProps> = ({ onItemClick }) =
               {studentSession?.fullName || 'Học sinh'}
             </h4>
             <p className="text-xs text-slate-400 truncate mt-0.5">
-              {currentClass ? currentClass.name : 'Chưa chọn lớp'}
+              {studentSession?.email || (currentClass ? currentClass.name : 'Chưa chọn lớp')}
             </p>
           </div>
         </div>
@@ -103,3 +105,4 @@ export const StudentSidebar: React.FC<StudentSidebarProps> = ({ onItemClick }) =
     </aside>
   );
 };
+

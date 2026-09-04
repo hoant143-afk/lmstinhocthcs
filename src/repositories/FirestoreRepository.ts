@@ -35,121 +35,77 @@ import {
   IAnnouncementRepository,
   ICertificateRepository
 } from './interfaces';
-import {
-  SEED_TEACHERS,
-  SEED_CLASSES,
-  SEED_STUDENTS,
-  SEED_LESSONS,
-  SEED_TASKS,
-  SEED_ASSIGNMENTS,
-  SEED_ANNOUNCEMENTS
-} from '../data/seedData';
 
-// Track initialization state
-let isDatabaseSeeded = false;
-let seedingPromise: Promise<void> | null = null;
+// Known demo IDs to strictly purge and filter out from all production flows
+export const KNOWN_DEMO_IDS = new Set([
+  'teacher_01', 'teacher_02', 'teacher_demo_1',
+  'class_10a1', 'class_11a3', 'class_demo_1', 'TIN10-A1', 'ROBOT11-A3',
+  'std_01', 'std_02', 'std_03', 'std_04', 'std_05', 'std_06', 'std_07', 'std_08', 'std_09', 'std_10',
+  'lesson_01', 'lesson_02', 'lesson_03', 'lesson_04',
+  'task_01_video', 'task_01_quiz', 'task_01_project',
+  'task_02_video', 'task_02_quiz', 'task_02_project',
+  'task_03_video', 'task_03_quiz', 'task_03_project',
+  'task_04_video', 'task_04_quiz', 'task_04_project',
+  'asg_01', 'asg_02', 'asg_03',
+  'anc_01', 'anc_02',
+  'cert_01', 'cert_02'
+]);
 
+// Production: No auto-seeding of any sample content. Authenticates Firestore cleanly.
 export async function ensureFirestoreDatabaseSeeded(): Promise<void> {
-  if (isDatabaseSeeded) return;
-  if (seedingPromise) return seedingPromise;
+  await ensureFirebaseAuth();
+}
 
-  seedingPromise = (async () => {
-    try {
-      await ensureFirebaseAuth();
-      // Check if classes collection has data
-      const classesSnap = await getDocs(collection(db, 'classes'));
-      if (classesSnap.empty) {
-        console.log('[Firestore] Database is empty. Seeding initial data to Cloud Firestore...');
-        
-        // 1. Seed Teachers
-        for (const t of SEED_TEACHERS) {
-          await setDoc(doc(db, 'teachers', t.id), t);
-        }
-
-        // 2. Seed Classes
-        for (const c of SEED_CLASSES) {
-          const code = c.classCode.toUpperCase().trim();
-          const classData = {
-            ...c,
-            classCode: code,
-            active: true,
-            createdAt: c.createdAt || new Date().toISOString(),
-            updatedAt: c.updatedAt || new Date().toISOString()
-          };
-          // Save by classCode as document ID
-          await setDoc(doc(db, 'classes', code), classData);
-          // Also save by id if different
-          if (c.id && c.id !== code) {
-            await setDoc(doc(db, 'classes', c.id), classData);
-          }
-        }
-
-        // 3. Seed Students
-        for (const s of SEED_STUDENTS) {
-          await setDoc(doc(db, 'students', s.id), s);
-          // Find class
-          const cls = SEED_CLASSES.find(c => c.id === s.classId);
-          if (cls) {
-            const classCode = cls.classCode.toUpperCase().trim();
-            await setDoc(doc(db, 'classes', classCode, 'members', s.id), {
-              studentId: s.id,
-              name: s.fullName,
-              fullName: s.fullName,
-              classCode,
-              classId: s.classId,
-              joinedAt: s.joinedAt || new Date().toISOString(),
-              progress: 0
-            });
-          }
-        }
-
-        // 4. Seed Lessons
-        for (const l of SEED_LESSONS) {
-          await setDoc(doc(db, 'lessons', l.id), l);
-          const cls = SEED_CLASSES.find(c => c.id === l.classId);
-          if (cls) {
-            const classCode = cls.classCode.toUpperCase().trim();
-            await setDoc(doc(db, 'classes', classCode, 'lessons', l.id), l);
-          }
-        }
-
-        // 5. Seed Tasks
-        for (const t of SEED_TASKS) {
-          await setDoc(doc(db, 'tasks', t.id), t);
-        }
-
-        // 6. Seed Assignments
-        for (const a of SEED_ASSIGNMENTS) {
-          await setDoc(doc(db, 'assignments', a.id), a);
-        }
-
-        // 7. Seed Announcements
-        for (const ann of SEED_ANNOUNCEMENTS) {
-          await setDoc(doc(db, 'announcements', ann.id), ann);
-        }
-
-        console.log('[Firestore] Seed data populated successfully to Cloud Firestore!');
-      }
-      isDatabaseSeeded = true;
-    } catch (err) {
-      console.warn('[Firestore] Auto-seed check warning (will proceed normally):', err);
-    }
-  })();
-
-  return seedingPromise;
+/**
+ * Purges legacy demo documents from Cloud Firestore if they exist.
+ * Real user classes/lessons/accounts have dynamic IDs and will never be affected.
+ */
+export async function purgeFirestoreDemoData(): Promise<void> {
+  try {
+    await ensureFirebaseAuth();
+    const demoDeletions = [
+      // Teachers
+      deleteDoc(doc(db, 'teachers', 'teacher_01')).catch(() => {}),
+      deleteDoc(doc(db, 'teachers', 'teacher_02')).catch(() => {}),
+      deleteDoc(doc(db, 'teachers', 'teacher_demo_1')).catch(() => {}),
+      // Classes
+      deleteDoc(doc(db, 'classes', 'class_10a1')).catch(() => {}),
+      deleteDoc(doc(db, 'classes', 'class_11a3')).catch(() => {}),
+      deleteDoc(doc(db, 'classes', 'class_demo_1')).catch(() => {}),
+      deleteDoc(doc(db, 'classes', 'TIN10-A1')).catch(() => {}),
+      deleteDoc(doc(db, 'classes', 'ROBOT11-A3')).catch(() => {}),
+      // Lessons
+      deleteDoc(doc(db, 'lessons', 'lesson_01')).catch(() => {}),
+      deleteDoc(doc(db, 'lessons', 'lesson_02')).catch(() => {}),
+      deleteDoc(doc(db, 'lessons', 'lesson_03')).catch(() => {}),
+      deleteDoc(doc(db, 'lessons', 'lesson_04')).catch(() => {}),
+      // Tasks
+      deleteDoc(doc(db, 'tasks', 'task_01_video')).catch(() => {}),
+      deleteDoc(doc(db, 'tasks', 'task_01_quiz')).catch(() => {}),
+      deleteDoc(doc(db, 'tasks', 'task_01_project')).catch(() => {}),
+      // Announcements
+      deleteDoc(doc(db, 'announcements', 'anc_01')).catch(() => {}),
+      deleteDoc(doc(db, 'announcements', 'anc_02')).catch(() => {})
+    ];
+    await Promise.all(demoDeletions);
+  } catch (err) {
+    console.warn('[Firestore] Purge notice:', err);
+  }
 }
 
 // ----------------------------------------------------
 // 1. TEACHER REPOSITORY
 // ----------------------------------------------------
 export class FirestoreTeacherRepository implements ITeacherRepository {
-  private currentTeacherId: string | null = 'teacher_01';
+  private currentTeacherId: string | null = null;
 
   async getAll(): Promise<Teacher[]> {
     await ensureFirestoreDatabaseSeeded();
     try {
       const snap = await getDocs(collection(db, 'teachers'));
-      return snap.docs.map(d => ({ id: d.id, ...d.data() } as Teacher));
+      return snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as Teacher))
+        .filter(t => !KNOWN_DEMO_IDS.has(t.id));
     } catch (e) {
       console.error('[Firestore] getAll teachers error:', e);
       throw e;
@@ -157,6 +113,7 @@ export class FirestoreTeacherRepository implements ITeacherRepository {
   }
 
   async getById(id: string): Promise<Teacher | null> {
+    if (KNOWN_DEMO_IDS.has(id)) return null;
     await ensureFirestoreDatabaseSeeded();
     try {
       const snap = await getDoc(doc(db, 'teachers', id));
@@ -175,6 +132,7 @@ export class FirestoreTeacherRepository implements ITeacherRepository {
       const snap = await getDocs(q);
       if (snap.empty) return null;
       const first = snap.docs[0];
+      if (KNOWN_DEMO_IDS.has(first.id)) return null;
       return { id: first.id, ...first.data() } as Teacher;
     } catch (e) {
       console.error('[Firestore] getByEmail teacher error:', e);
@@ -195,7 +153,8 @@ export class FirestoreTeacherRepository implements ITeacherRepository {
   }
 
   async getCurrentTeacher(): Promise<Teacher | null> {
-    const id = localStorage.getItem('sblms_current_teacher_id') || this.currentTeacherId || 'teacher_01';
+    const id = localStorage.getItem('sblms_current_teacher_id') || this.currentTeacherId;
+    if (!id || KNOWN_DEMO_IDS.has(id)) return null;
     return this.getById(id);
   }
 
@@ -229,6 +188,9 @@ export class FirestoreClassRepository implements IClassRepository {
 
       for (const d of snap.docs) {
         const item = { id: d.id, ...d.data() } as ClassEntity;
+        if (KNOWN_DEMO_IDS.has(item.id) || (item.classCode && KNOWN_DEMO_IDS.has(item.classCode.toUpperCase().trim()))) {
+          continue;
+        }
         const key = (item.classCode || d.id).toUpperCase().trim();
         if (!seen.has(key)) {
           seen.add(key);
@@ -248,11 +210,16 @@ export class FirestoreClassRepository implements IClassRepository {
   }
 
   async getById(id: string): Promise<ClassEntity | null> {
+    if (KNOWN_DEMO_IDS.has(id)) return null;
     await ensureFirestoreDatabaseSeeded();
     try {
       const snap = await getDoc(doc(db, 'classes', id));
       if (snap.exists()) {
-        return { id: snap.id, ...snap.data() } as ClassEntity;
+        const item = { id: snap.id, ...snap.data() } as ClassEntity;
+        if (KNOWN_DEMO_IDS.has(item.id) || (item.classCode && KNOWN_DEMO_IDS.has(item.classCode.toUpperCase().trim()))) {
+          return null;
+        }
+        return item;
       }
       // If not found by doc id, search by classCode or id field
       const all = await this.getAll();
@@ -266,7 +233,7 @@ export class FirestoreClassRepository implements IClassRepository {
   async getByCode(classCode: string): Promise<ClassEntity | null> {
     await ensureFirestoreDatabaseSeeded();
     const cleanCode = (classCode || '').trim().toUpperCase();
-    if (!cleanCode) return null;
+    if (!cleanCode || KNOWN_DEMO_IDS.has(cleanCode)) return null;
 
     try {
       // 1. Direct document lookup at classes/{CLASS_CODE}
@@ -382,24 +349,28 @@ export class FirestoreStudentRepository implements IStudentRepository {
       // Check subcollection classes/{classCode}/members
       const membersSnap = await getDocs(collection(db, 'classes', code, 'members'));
       if (!membersSnap.empty) {
-        return membersSnap.docs.map(d => {
-          const data = d.data();
-          return {
-            id: d.id,
-            classId: data.classId || classId,
-            fullName: data.name || data.fullName,
-            email: data.email,
-            avatarUrl: data.avatarUrl,
-            joinedAt: data.joinedAt || new Date().toISOString(),
-            status: data.status || 'active'
-          } as Student;
-        });
+        return membersSnap.docs
+          .map(d => {
+            const data = d.data();
+            return {
+              id: d.id,
+              classId: data.classId || classId,
+              fullName: data.name || data.fullName,
+              email: data.email,
+              avatarUrl: data.avatarUrl,
+              joinedAt: data.joinedAt || new Date().toISOString(),
+              status: data.status || 'active'
+            } as Student;
+          })
+          .filter(s => !KNOWN_DEMO_IDS.has(s.id));
       }
 
       // Check root students collection
       const q = query(collection(db, 'students'), where('classId', '==', classId));
       const rootSnap = await getDocs(q);
-      return rootSnap.docs.map(d => ({ id: d.id, ...d.data() } as Student));
+      return rootSnap.docs
+        .map(d => ({ id: d.id, ...d.data() } as Student))
+        .filter(s => !KNOWN_DEMO_IDS.has(s.id));
     } catch (e) {
       console.error('[Firestore] getByClassId students error:', e);
       throw e;
@@ -407,11 +378,14 @@ export class FirestoreStudentRepository implements IStudentRepository {
   }
 
   async getById(id: string): Promise<Student | null> {
+    if (KNOWN_DEMO_IDS.has(id)) return null;
     await ensureFirestoreDatabaseSeeded();
     try {
       const snap = await getDoc(doc(db, 'students', id));
       if (snap.exists()) {
-        return { id: snap.id, ...snap.data() } as Student;
+        const student = { id: snap.id, ...snap.data() } as Student;
+        if (KNOWN_DEMO_IDS.has(student.id)) return null;
+        return student;
       }
       return null;
     } catch (e) {
@@ -483,7 +457,9 @@ export class FirestoreLessonRepository implements ILessonRepository {
     await ensureFirestoreDatabaseSeeded();
     try {
       const snap = await getDocs(collection(db, 'lessons'));
-      return snap.docs.map(d => ({ id: d.id, ...d.data() } as Lesson));
+      return snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as Lesson))
+        .filter(l => !KNOWN_DEMO_IDS.has(l.id));
     } catch (e) {
       console.error('[Firestore] getAll lessons error:', e);
       throw e;
@@ -497,13 +473,17 @@ export class FirestoreLessonRepository implements ILessonRepository {
       // Check subcollection classes/{classCode}/lessons
       const subSnap = await getDocs(collection(db, 'classes', code, 'lessons'));
       if (!subSnap.empty) {
-        return subSnap.docs.map(d => ({ id: d.id, ...d.data() } as Lesson));
+        return subSnap.docs
+          .map(d => ({ id: d.id, ...d.data() } as Lesson))
+          .filter(l => !KNOWN_DEMO_IDS.has(l.id));
       }
 
       // Check root lessons collection
       const q = query(collection(db, 'lessons'), where('classId', '==', classId));
       const rootSnap = await getDocs(q);
-      return rootSnap.docs.map(d => ({ id: d.id, ...d.data() } as Lesson));
+      return rootSnap.docs
+        .map(d => ({ id: d.id, ...d.data() } as Lesson))
+        .filter(l => !KNOWN_DEMO_IDS.has(l.id));
     } catch (e) {
       console.error('[Firestore] getByClassId lessons error:', e);
       throw e;
@@ -511,11 +491,14 @@ export class FirestoreLessonRepository implements ILessonRepository {
   }
 
   async getById(id: string): Promise<Lesson | null> {
+    if (KNOWN_DEMO_IDS.has(id)) return null;
     await ensureFirestoreDatabaseSeeded();
     try {
       const snap = await getDoc(doc(db, 'lessons', id));
       if (snap.exists()) {
-        return { id: snap.id, ...snap.data() } as Lesson;
+        const lesson = { id: snap.id, ...snap.data() } as Lesson;
+        if (KNOWN_DEMO_IDS.has(lesson.id)) return null;
+        return lesson;
       }
       return null;
     } catch (e) {
@@ -526,7 +509,7 @@ export class FirestoreLessonRepository implements ILessonRepository {
 
   async getTemplatesByTeacher(teacherId: string): Promise<Lesson[]> {
     const all = await this.getAll();
-    return all.filter(l => l.isTemplate && l.authorTeacherId === teacherId);
+    return all.filter(l => l.isTemplate && l.teacherId === teacherId);
   }
 
   async create(lessonData: Omit<Lesson, 'id' | 'createdAt' | 'updatedAt'>): Promise<Lesson> {
@@ -605,11 +588,14 @@ export class FirestoreLessonRepository implements ILessonRepository {
 // ----------------------------------------------------
 export class FirestoreTaskRepository implements ITaskRepository {
   async getByLessonId(lessonId: string): Promise<Task[]> {
+    if (KNOWN_DEMO_IDS.has(lessonId)) return [];
     await ensureFirestoreDatabaseSeeded();
     try {
       const q = query(collection(db, 'tasks'), where('lessonId', '==', lessonId));
       const snap = await getDocs(q);
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Task));
+      const list = snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as Task))
+        .filter(t => !KNOWN_DEMO_IDS.has(t.id));
       return list.sort((a, b) => a.order - b.order);
     } catch (e) {
       console.error('[Firestore] getByLessonId tasks error:', e);
@@ -618,11 +604,14 @@ export class FirestoreTaskRepository implements ITaskRepository {
   }
 
   async getById(id: string): Promise<Task | null> {
+    if (KNOWN_DEMO_IDS.has(id)) return null;
     await ensureFirestoreDatabaseSeeded();
     try {
       const snap = await getDoc(doc(db, 'tasks', id));
       if (snap.exists()) {
-        return { id: snap.id, ...snap.data() } as Task;
+        const task = { id: snap.id, ...snap.data() } as Task;
+        if (KNOWN_DEMO_IDS.has(task.id)) return null;
+        return task;
       }
       return null;
     } catch (e) {
@@ -735,8 +724,7 @@ export class FirestoreProgressRepository implements IProgressRepository {
     const id = progress.id || `prog_${progress.studentId}_${progress.taskId}`;
     const item: TaskProgress = {
       ...progress,
-      id,
-      lastUpdatedAt: new Date().toISOString()
+      id
     };
     await setDoc(doc(db, 'progress', id), item, { merge: true });
     return item;

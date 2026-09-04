@@ -21,7 +21,7 @@ export const StudentProtectedRoute: React.FC<StudentProtectedRouteProps> = ({ ch
   }
 
   if (!studentSession) {
-    return <Navigate to="/app/join" state={{ from: location }} replace />;
+    return <Navigate to="/app/login" state={{ from: location }} replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;
