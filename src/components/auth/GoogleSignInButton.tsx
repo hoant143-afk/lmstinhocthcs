@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Globe, Loader2, Settings, AlertCircle, CheckCircle2, Copy, Check, ExternalLink, ChevronDown, ChevronUp, ShieldCheck } from 'lucide-react';
+import { Globe, Loader2, Settings, AlertCircle, CheckCircle2, Copy, Check, ExternalLink, ChevronDown, ChevronUp, ShieldCheck, RefreshCw } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
+import firebaseConfigData from '../../../firebase-applet-config.json';
 
 interface GoogleSignInButtonProps {
   role: 'teacher' | 'student';
@@ -34,9 +35,18 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const envClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
+  const defaultAppletClientId = (firebaseConfigData as any)?.oAuthClientId || '';
+
   const [clientId, setClientId] = useState<string>(() => {
-    return envClientId || (localStorage.getItem('sblms_google_client_id') || '').trim();
+    const saved = (localStorage.getItem('sblms_google_client_id') || '').trim();
+    if (saved && saved.startsWith('182246867443')) {
+      // Purge obsolete dummy ID from cache
+      localStorage.removeItem('sblms_google_client_id');
+      return envClientId || defaultAppletClientId;
+    }
+    return envClientId || saved || defaultAppletClientId;
   });
+  const [copiedClientId, setCopiedClientId] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isGsiReady, setIsGsiReady] = useState<boolean>(false);
   const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
@@ -58,7 +68,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       console.log("[Google Auth Debug]", {
         configured: Boolean(clientId),
         currentOrigin: window.location.origin,
-        clientIdMasked: clientId ? `${clientId.slice(0, 16)}...${clientId.slice(-24)}` : 'none',
+        activeClientId: clientId,
         sdkReady: Boolean(window.google?.accounts?.id)
       });
     }
@@ -72,8 +82,9 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
         const res = await fetch('/api/config');
         if (res.ok) {
           const data = await res.json();
-          if (data.googleClientId && isMounted && !envClientId) {
-            setClientId(data.googleClientId.trim());
+          const serverId = (data.googleClientId || '').trim();
+          if (serverId && !serverId.startsWith('182246867443') && isMounted && !envClientId) {
+            setClientId(serverId);
           }
         }
       } catch (err) {
@@ -81,7 +92,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       }
     };
 
-    if (!clientId) {
+    if (!clientId || clientId.startsWith('182246867443')) {
       loadConfig();
     }
     return () => {
@@ -225,9 +236,22 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
     }
   };
 
-  const maskedClientId = clientId
-    ? `${clientId.slice(0, 14)}...${clientId.slice(-24)}`
-    : 'Chưa cấu hình';
+  const handleCopyClientId = () => {
+    if (!clientId) return;
+    navigator.clipboard.writeText(clientId);
+    setCopiedClientId(true);
+    toastSuccess('Đã sao chép Client ID!');
+    setTimeout(() => setCopiedClientId(false), 2500);
+  };
+
+  const handleResetClient = () => {
+    localStorage.removeItem('sblms_google_client_id');
+    const fallback = envClientId || defaultAppletClientId;
+    setClientId(fallback);
+    toastInfo('Đã xóa bộ nhớ đệm. Đang tải Client ID của hệ thống.');
+  };
+
+  const isInvalidOldId = clientId.startsWith('182246867443');
 
   return (
     <div className={`w-full ${className}`}>
@@ -318,57 +342,132 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
           </div>
         </div>
 
-        {/* Masked Client ID */}
-        <div className="flex items-center justify-between text-[11px] bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
-          <span className="text-slate-500">Client ID:</span>
-          <span className="font-mono text-slate-700 font-medium truncate max-w-[200px]" title={clientId}>
-            {maskedClientId}
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setInputClientId(clientId);
-              setShowConfigModal(true);
-            }}
-            className="text-blue-600 hover:underline text-[11px] font-medium cursor-pointer ml-1"
-          >
-            Đổi
-          </button>
+        {/* Active Client ID */}
+        <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500 font-medium text-[11px]">Active Client ID:</span>
+              {isInvalidOldId && (
+                <span className="bg-red-100 text-red-700 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                  ID cũ không hợp lệ
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleCopyClientId}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium transition cursor-pointer"
+                title="Sao chép Client ID"
+              >
+                {copiedClientId ? (
+                  <>
+                    <Check className="w-3 h-3 text-emerald-600" />
+                    <span className="text-emerald-700 text-[10px]">Đã chép</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3 h-3 text-slate-500" />
+                    <span className="text-[10px]">Chép ID</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setInputClientId(clientId);
+                  setShowConfigModal(true);
+                }}
+                className="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold transition cursor-pointer"
+              >
+                Đổi ID
+              </button>
+              <button
+                type="button"
+                onClick={handleResetClient}
+                className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                title="Xóa cache & Khôi phục mặc định"
+              >
+                <RefreshCw className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+          <div className={`font-mono text-[11px] break-all px-2 py-1.5 rounded border select-all ${
+            isInvalidOldId
+              ? 'bg-red-50 text-red-800 border-red-200 font-semibold'
+              : 'bg-slate-50 text-slate-800 border-slate-200'
+          }`}>
+            {clientId || 'Chưa cấu hình Client ID'}
+          </div>
+          {isInvalidOldId && (
+            <p className="text-[10px] text-red-600 font-medium">
+              ⚠️ Đây là Client ID mẫu cũ (18224686...). Bạn hãy bấm nút <strong>"Đổi ID"</strong> ở trên và dán Client ID mới tạo từ Google Cloud Console để không bị lỗi 401.
+            </p>
+          )}
         </div>
 
-        {/* Step-by-step fix guide for Error 400: origin_mismatch */}
+        {/* Step-by-step fix guide for Error 401 & Error 400 */}
         {showDebugGuide && (
-          <div className="p-3 bg-amber-50/80 rounded-lg border border-amber-200 text-amber-900 space-y-2 text-[11px]">
-            <div className="flex items-center gap-1.5 font-bold text-amber-800">
-              <AlertCircle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
-              <span>Cách sửa lỗi "Error 400: origin_mismatch":</span>
+          <div className="space-y-2.5">
+            {/* Error 401 Guide */}
+            <div className="p-3 bg-red-50/90 rounded-lg border border-red-200 text-red-950 space-y-2 text-[11px]">
+              <div className="flex items-center gap-1.5 font-bold text-red-800">
+                <AlertCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
+                <span>Cách sửa lỗi "Error 401: invalid_client - The OAuth client was not found":</span>
+              </div>
+              <p className="text-slate-700 leading-relaxed">
+                Lỗi này xuất hiện khi Google <strong>không tìm thấy Client ID</strong> này trong hệ thống Google Cloud (Client ID bị xóa, chưa tạo, hoặc gõ sai trên Vercel).
+              </p>
+              <ol className="list-decimal list-inside space-y-1 text-slate-700 pl-0.5">
+                <li>
+                  Vào <strong>Google Cloud Console</strong> (<span className="text-blue-700 font-semibold">hoant143@fpt.edu.vn</span>) &rarr; <strong>APIs &amp; Services</strong> &rarr; <strong>Credentials</strong>.
+                </li>
+                <li>
+                  Bấm <strong>+ CREATE CREDENTIALS</strong> &rarr; chọn <strong>OAuth client ID</strong>.
+                </li>
+                <li>
+                  Application type: chọn <strong>Web application</strong> (Bắt buộc).
+                </li>
+                <li>
+                  Mục <strong>Authorized JavaScript origins</strong>: Thêm cả domain Vercel và local:
+                  <div className="my-1 space-y-1 font-mono text-[10px] pl-4">
+                    <div className="text-slate-800 bg-white p-1 rounded border border-slate-200">{currentOrigin || 'https://smart-blended-lms.vercel.app'}</div>
+                    <div className="text-slate-600 bg-white p-1 rounded border border-slate-200">http://localhost:3000</div>
+                  </div>
+                </li>
+                <li>
+                  Bấm <strong>CREATE</strong>, sau đó <strong>Copy Client ID</strong> (dạng <code>...apps.googleusercontent.com</code>).
+                </li>
+                <li>
+                  <strong>Trên Vercel:</strong> Vào <strong>Project Settings &rarr; Environment Variables</strong> &rarr; Thêm:
+                  <div className="my-1 bg-slate-900 text-emerald-400 font-mono p-1.5 rounded text-[10px]">
+                    VITE_GOOGLE_CLIENT_ID = [Dán Client ID của bạn vào đây]
+                  </div>
+                  Sau đó bấm <strong>Redeploy</strong> dự án trên Vercel.
+                </li>
+                <li>
+                  <strong>Tại đây:</strong> Bạn cũng có thể bấm nút <strong>"Đổi"</strong> ở trên và dán Client ID mới vào để kích hoạt ngay lập tức.
+                </li>
+              </ol>
             </div>
-            <ol className="list-decimal list-inside space-y-1 text-slate-700 pl-0.5">
-              <li>
-                Truy cập <strong>Google Cloud Console</strong> &rarr; <strong>APIs &amp; Services</strong> &rarr; <strong>Credentials</strong>.
-              </li>
-              <li>
-                Chọn đúng <strong>OAuth 2.0 Client ID</strong> (Loại: <em>Web application</em>) đang dùng.
-              </li>
-              <li>
-                Tại phần <strong>Authorized JavaScript origins</strong>, bấm <strong>ADD URI</strong>.
-              </li>
-              <li>
-                Dán chính xác: <code className="bg-amber-100/90 text-amber-900 font-mono px-1 py-0.5 rounded font-bold">{currentOrigin}</code>
-              </li>
-              <li className="text-red-700 font-medium">
-                <strong>Quy tắc:</strong> KHÔNG thêm dấu gạch chéo <code className="bg-red-100 px-1 rounded">/</code> ở cuối, KHÔNG thêm <code className="bg-red-100 px-1 rounded">/app/login</code>.
-              </li>
-              <li>
-                Bấm <strong>SAVE</strong> và đợi 1–2 phút để Google cập nhật, sau đó mở lại cửa sổ ẩn danh thử lại.
-              </li>
-            </ol>
-            <div className="pt-1">
+
+            {/* Error 400 Guide */}
+            <div className="p-3 bg-amber-50/80 rounded-lg border border-amber-200 text-amber-900 space-y-2 text-[11px]">
+              <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                <span>Nếu gặp "Error 400: origin_mismatch":</span>
+              </div>
+              <p className="text-slate-700">
+                Thêm chính xác Origin <code className="bg-amber-100 font-mono px-1 py-0.5 rounded font-bold text-amber-900">{currentOrigin}</code> vào mục <strong>Authorized JavaScript origins</strong> của Client ID đó trên Google Cloud Console.
+              </p>
+            </div>
+
+            <div className="pt-0.5">
               <a
                 href="https://console.cloud.google.com/apis/credentials"
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-800 font-semibold underline"
+                className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-800 font-semibold underline text-xs"
               >
                 <span>Mở Google Cloud Console Credentials</span>
                 <ExternalLink className="w-3 h-3" />

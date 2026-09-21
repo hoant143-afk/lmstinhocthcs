@@ -491,7 +491,12 @@ export const AdminSettingsPage: React.FC = () => {
 
   // Google OAuth Client ID State
   const [googleClientId, setGoogleClientId] = useState<string>(() => {
-    return (import.meta.env.VITE_GOOGLE_CLIENT_ID || localStorage.getItem('sblms_google_client_id') || '').trim();
+    const saved = localStorage.getItem('sblms_google_client_id') || '';
+    if (saved.startsWith('182246867443')) {
+      localStorage.removeItem('sblms_google_client_id');
+      return (import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
+    }
+    return (import.meta.env.VITE_GOOGLE_CLIENT_ID || saved || '').trim();
   });
   const [isSavingGoogleClient, setIsSavingGoogleClient] = useState<boolean>(false);
   const [isOriginCopied, setIsOriginCopied] = useState<boolean>(false);

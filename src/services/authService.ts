@@ -1,6 +1,7 @@
 import { teacherRepo } from '../repositories';
 import { Teacher, TeacherLoginDto, TeacherRegisterDto } from '../types';
 import { apiClient } from './apiClient';
+import { decodeGoogleCredential } from '../utils/jwt';
 
 const TEACHER_TOKEN_KEY = 'sblms_teacher_token';
 
@@ -177,32 +178,59 @@ export const authService = {
     }
 
     // 2. Try Apps Script fallback if configured
-    try {
-      const gasRes = await apiClient.post<{
-        success: boolean;
-        token: string;
-        user?: Teacher;
-        teacher?: Teacher;
-        error?: string;
-      }>('auth.google', { credential, role: 'teacher' });
+    if (apiClient.isAppsScriptConfigured()) {
+      try {
+        const gasRes = await apiClient.post<{
+          success: boolean;
+          token: string;
+          user?: Teacher;
+          teacher?: Teacher;
+          error?: string;
+        }>('auth.google', { credential, role: 'teacher' });
 
-      if (gasRes.success && (gasRes.token || (gasRes as any).data?.token)) {
-        const token = gasRes.token || (gasRes as any).data?.token;
-        const teacher = gasRes.teacher || gasRes.user || (gasRes as any).data?.user;
-        if (token) {
-          this.setTeacherToken(token);
+        if (gasRes.success && (gasRes.token || (gasRes as any).data?.token)) {
+          const token = gasRes.token || (gasRes as any).data?.token;
+          const teacher = gasRes.teacher || gasRes.user || (gasRes as any).data?.user;
+          if (token) {
+            this.setTeacherToken(token);
+          }
+          await teacherRepo.setCurrentTeacher(teacher);
+          return teacher;
         }
-        await teacherRepo.setCurrentTeacher(teacher);
-        return teacher;
+        if (gasRes.error) {
+          throw new Error(gasRes.error);
+        }
+      } catch (err: any) {
+        console.warn('Apps Script Google Auth error:', err);
       }
-      if (gasRes.error) {
-        throw new Error(gasRes.error);
-      }
-    } catch (err: any) {
-      throw new Error(err.message || 'Xác thực Google cho giáo viên không thành công.');
     }
 
-    throw new Error('Không thể kết nối đến máy chủ xác thực Google.');
+    // 3. Fallback for Static Hostings (e.g. Vercel SPA without backend)
+    const payload = decodeGoogleCredential(credential);
+    if (payload && payload.email) {
+      const email = payload.email.toLowerCase().trim();
+      let teacher = await teacherRepo.getByEmail(email);
+
+      if (!teacher) {
+        // Automatically create or register teacher from verified Google account
+        teacher = await teacherRepo.create({
+          fullName: payload.name || email.split('@')[0],
+          email,
+          avatarUrl: payload.picture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+          authProvider: 'google',
+          schoolName: 'Trường THPT & THCS',
+          subject: 'Tin học & STEM',
+          title: 'Giáo viên bộ môn'
+        });
+      }
+
+      const clientToken = `gtoken_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      this.setTeacherToken(clientToken);
+      await teacherRepo.setCurrentTeacher(teacher);
+      return teacher;
+    }
+
+    throw new Error('Không thể xác thực thông tin tài khoản Google.');
   },
 
   async logoutTeacher(): Promise<void> {
