@@ -51,58 +51,168 @@ const cloudCertificate = new FirestoreCertificateRepository();
 // 1. AppsScript Teacher Repository
 export class AppsScriptTeacherRepository implements ITeacherRepository {
   async getAll(): Promise<Teacher[]> {
-    const res = await apiClient.request<Teacher[]>('teachers.getAll');
-    if (res.success && Array.isArray(res.data)) {
-      return res.data;
+    // 1. Check local server API first (ultra-fast)
+    try {
+      const serverRes = await fetch('/api/teachers');
+      if (serverRes.ok) {
+        const list = await serverRes.json();
+        if (Array.isArray(list) && list.length > 0) {
+          return list;
+        }
+      }
+    } catch {}
+
+    // 2. Query Cloud Firestore
+    try {
+      const fsTeachers = await cloudTeacher.getAll();
+      if (Array.isArray(fsTeachers) && fsTeachers.length > 0) {
+        return fsTeachers;
+      }
+    } catch {}
+
+    // 3. Fallback to Google Apps Script only if configured
+    if (apiClient.isAppsScriptConfigured()) {
+      const res = await apiClient.request<Teacher[]>('teachers.getAll');
+      if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+        return res.data;
+      }
     }
     return cloudTeacher.getAll();
   }
 
   async getById(id: string): Promise<Teacher | null> {
-    const res = await apiClient.request<Teacher>('teachers.getById', { id });
-    if (res.success && res.data) {
-      return res.data;
+    try {
+      const serverRes = await fetch(`/api/teachers/${encodeURIComponent(id)}`);
+      if (serverRes.ok) {
+        const teacher = await serverRes.json();
+        if (teacher && teacher.id) return teacher;
+      }
+    } catch {}
+
+    try {
+      const fsTeacher = await cloudTeacher.getById(id);
+      if (fsTeacher) return fsTeacher;
+    } catch {}
+
+    if (apiClient.isAppsScriptConfigured()) {
+      const res = await apiClient.request<Teacher>('teachers.getById', { id });
+      if (res.success && res.data) {
+        return res.data;
+      }
     }
     return cloudTeacher.getById(id);
   }
 
   async getByEmail(email: string): Promise<Teacher | null> {
-    const res = await apiClient.request<Teacher>('teachers.getByEmail', { email });
-    if (res.success && res.data) {
-      return res.data;
+    try {
+      const serverRes = await fetch('/api/teachers');
+      if (serverRes.ok) {
+        const list = await serverRes.json();
+        if (Array.isArray(list)) {
+          const found = list.find((t: Teacher) => t.email?.toLowerCase() === email.toLowerCase());
+          if (found) return found;
+        }
+      }
+    } catch {}
+
+    try {
+      const fsTeacher = await cloudTeacher.getByEmail(email);
+      if (fsTeacher) return fsTeacher;
+    } catch {}
+
+    if (apiClient.isAppsScriptConfigured()) {
+      const res = await apiClient.request<Teacher>('teachers.getByEmail', { email });
+      if (res.success && res.data) {
+        return res.data;
+      }
     }
     return cloudTeacher.getByEmail(email);
   }
 
   async create(data: Omit<Teacher, 'id' | 'createdAt'>): Promise<Teacher> {
-    const res = await apiClient.request<Teacher>('teachers.create', data);
-    if (res.success && res.data) {
-      cloudTeacher.create(data).catch(() => {});
-      return res.data;
+    try {
+      const serverRes = await fetch('/api/teachers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (serverRes.ok) {
+        const created = await serverRes.json();
+        cloudTeacher.create(data).catch(() => {});
+        return created;
+      }
+    } catch {}
+
+    if (apiClient.isAppsScriptConfigured()) {
+      const res = await apiClient.request<Teacher>('teachers.create', data);
+      if (res.success && res.data) {
+        cloudTeacher.create(data).catch(() => {});
+        return res.data;
+      }
     }
     return cloudTeacher.create(data);
   }
 
   async getCurrentTeacher(): Promise<Teacher | null> {
-    const res = await apiClient.request<Teacher>('auth.getCurrentTeacher');
-    if (res.success && res.data) {
-      return res.data;
+    // 1. Check local server API first
+    try {
+      const serverRes = await fetch('/api/teachers/current');
+      if (serverRes.ok) {
+        const teacher = await serverRes.json();
+        if (teacher && teacher.id) return teacher;
+      }
+    } catch {}
+
+    // 2. Query Cloud Firestore
+    try {
+      const fsTeacher = await cloudTeacher.getCurrentTeacher();
+      if (fsTeacher) return fsTeacher;
+    } catch {}
+
+    // 3. Fallback to Google Apps Script only if configured
+    if (apiClient.isAppsScriptConfigured()) {
+      const res = await apiClient.request<Teacher>('auth.getCurrentTeacher');
+      if (res.success && res.data) {
+        return res.data;
+      }
     }
     return cloudTeacher.getCurrentTeacher();
   }
 
   async setCurrentTeacher(teacher: Teacher | null): Promise<void> {
     await cloudTeacher.setCurrentTeacher(teacher);
-    if (teacher) {
+    try {
+      await fetch('/api/teachers/current', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teacherId: teacher?.id || null })
+      });
+    } catch {}
+    if (teacher && apiClient.isAppsScriptConfigured()) {
       await apiClient.request('auth.setCurrentTeacher', { teacherId: teacher.id });
     }
   }
 
   async updateTeacher(id: string, data: Partial<Teacher>): Promise<Teacher | null> {
-    const res = await apiClient.request<Teacher>('teachers.update', { id, ...data });
-    if (res.success && res.data) {
-      cloudTeacher.updateTeacher(id, data).catch(() => {});
-      return res.data;
+    try {
+      const serverRes = await fetch(`/api/teachers/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (serverRes.ok) {
+        const updated = await serverRes.json();
+        cloudTeacher.updateTeacher(id, data).catch(() => {});
+        return updated;
+      }
+    } catch {}
+
+    if (apiClient.isAppsScriptConfigured()) {
+      const res = await apiClient.request<Teacher>('teachers.update', { id, ...data });
+      if (res.success && res.data) {
+        cloudTeacher.updateTeacher(id, data).catch(() => {});
+        return res.data;
+      }
     }
     return cloudTeacher.updateTeacher(id, data);
   }

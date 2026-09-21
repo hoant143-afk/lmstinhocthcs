@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Globe, Loader2, Settings, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Globe, Loader2, Settings, AlertCircle, CheckCircle2, Copy, Check, ExternalLink, ChevronDown, ChevronUp, ShieldCheck } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 
 interface GoogleSignInButtonProps {
@@ -33,20 +33,38 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
   className = ''
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const envClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
   const [clientId, setClientId] = useState<string>(() => {
-    return (import.meta.env.VITE_GOOGLE_CLIENT_ID || localStorage.getItem('sblms_google_client_id') || '').trim();
+    return envClientId || (localStorage.getItem('sblms_google_client_id') || '').trim();
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isGsiReady, setIsGsiReady] = useState<boolean>(false);
   const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
   const [inputClientId, setInputClientId] = useState<string>('');
   const [isSavingConfig, setIsSavingConfig] = useState<boolean>(false);
+  const [copiedOrigin, setCopiedOrigin] = useState<boolean>(false);
+  const [showDebugGuide, setShowDebugGuide] = useState<boolean>(true);
 
   const { toastSuccess, toastError, toastInfo } = useToast();
 
   const label = buttonText || (role === 'teacher' ? 'Đăng nhập bằng Google' : 'Tiếp tục với Google');
 
-  // 1. Fetch server config if client ID is not present
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+
+  // 1. Output Current Origin to console immediately
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      console.log("CURRENT ORIGIN:", window.location.origin);
+      console.log("[Google Auth Debug]", {
+        configured: Boolean(clientId),
+        currentOrigin: window.location.origin,
+        clientIdMasked: clientId ? `${clientId.slice(0, 16)}...${clientId.slice(-24)}` : 'none',
+        sdkReady: Boolean(window.google?.accounts?.id)
+      });
+    }
+  }, [clientId]);
+
+  // 2. Fetch server config if client ID is not present in env
   useEffect(() => {
     let isMounted = true;
     const loadConfig = async () => {
@@ -54,7 +72,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
         const res = await fetch('/api/config');
         if (res.ok) {
           const data = await res.json();
-          if (data.googleClientId && isMounted) {
+          if (data.googleClientId && isMounted && !envClientId) {
             setClientId(data.googleClientId.trim());
           }
         }
@@ -69,9 +87,9 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [clientId]);
+  }, [clientId, envClientId]);
 
-  // 2. Poll/wait for Google Identity Services script
+  // 3. Poll/wait for Google Identity Services script
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
     let attempts = 0;
@@ -98,7 +116,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
     };
   }, []);
 
-  // 3. Render Google Sign-In button using GIS SDK
+  // 4. Render Google Sign-In button using GIS SDK
   useEffect(() => {
     if (!isGsiReady || !clientId || !containerRef.current) {
       return;
@@ -134,6 +152,9 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       // Clear container before rendering
       containerRef.current.innerHTML = '';
 
+      const containerWidth = containerRef.current.offsetWidth || 340;
+      const targetWidth = Math.min(380, Math.max(240, containerWidth));
+
       window.google!.accounts!.id!.renderButton(containerRef.current, {
         type: 'standard',
         theme: 'outline',
@@ -141,7 +162,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
         text: role === 'student' ? 'continue_with' : 'signin_with',
         shape: 'rectangular',
         logo_alignment: 'left',
-        width: 380,
+        width: targetWidth,
         locale: 'vi'
       });
     } catch (err) {
@@ -165,6 +186,14 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
     } catch (err) {
       console.warn('Google prompt fallback:', err);
     }
+  };
+
+  const handleCopyOrigin = () => {
+    if (!currentOrigin) return;
+    navigator.clipboard.writeText(currentOrigin);
+    setCopiedOrigin(true);
+    toastSuccess(`Đã sao chép Origin: ${currentOrigin}`);
+    setTimeout(() => setCopiedOrigin(false), 2500);
   };
 
   const handleSaveClientId = async (e: React.FormEvent) => {
@@ -196,6 +225,10 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
     }
   };
 
+  const maskedClientId = clientId
+    ? `${clientId.slice(0, 14)}...${clientId.slice(-24)}`
+    : 'Chưa cấu hình';
+
   return (
     <div className={`w-full ${className}`}>
       {/* If Client ID is ready and GSI loaded, Google's official button renders inside this container */}
@@ -225,7 +258,127 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
         </button>
       )}
 
-      {/* Modal: Setup Google Client ID if missing */}
+      {/* Origin Diagnostic & Error 400: origin_mismatch Guide Panel */}
+      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-xs text-slate-600 space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-semibold text-slate-800">
+            <ShieldCheck className="w-4 h-4 text-blue-600" />
+            <span>Google OAuth Status &amp; Origin</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowDebugGuide(!showDebugGuide)}
+            className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 font-medium transition cursor-pointer"
+          >
+            <span>{showDebugGuide ? 'Thu gọn' : 'Xem chi tiết'}</span>
+            {showDebugGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {/* Status Indicators */}
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <div className="flex items-center gap-1.5 bg-white p-2 rounded-lg border border-slate-200">
+            <span className="text-slate-500">Google Client:</span>
+            <span className={`font-semibold ${clientId ? 'text-emerald-600' : 'text-amber-600'}`}>
+              {clientId ? 'true (Đã nạp)' : 'false (Chưa có)'}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 bg-white p-2 rounded-lg border border-slate-200">
+            <span className="text-slate-500">Google SDK:</span>
+            <span className={`font-semibold ${isGsiReady ? 'text-emerald-600' : 'text-slate-500'}`}>
+              {isGsiReady ? 'Sẵn sàng' : 'Đang nạp...'}
+            </span>
+          </div>
+        </div>
+
+        {/* Current Origin with 1-Click Copy */}
+        <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 font-medium text-[11px]">Current Origin:</span>
+            <button
+              type="button"
+              onClick={handleCopyOrigin}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] font-semibold transition cursor-pointer"
+            >
+              {copiedOrigin ? (
+                <>
+                  <Check className="w-3 h-3 text-emerald-600" />
+                  <span className="text-emerald-700">Đã sao chép!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3 h-3 text-blue-600" />
+                  <span>Sao chép Origin</span>
+                </>
+              )}
+            </button>
+          </div>
+          <div className="font-mono text-xs text-slate-800 break-all bg-slate-50 px-2 py-1.5 rounded border border-slate-200 select-all">
+            {currentOrigin || 'Đang xác định...'}
+          </div>
+        </div>
+
+        {/* Masked Client ID */}
+        <div className="flex items-center justify-between text-[11px] bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+          <span className="text-slate-500">Client ID:</span>
+          <span className="font-mono text-slate-700 font-medium truncate max-w-[200px]" title={clientId}>
+            {maskedClientId}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setInputClientId(clientId);
+              setShowConfigModal(true);
+            }}
+            className="text-blue-600 hover:underline text-[11px] font-medium cursor-pointer ml-1"
+          >
+            Đổi
+          </button>
+        </div>
+
+        {/* Step-by-step fix guide for Error 400: origin_mismatch */}
+        {showDebugGuide && (
+          <div className="p-3 bg-amber-50/80 rounded-lg border border-amber-200 text-amber-900 space-y-2 text-[11px]">
+            <div className="flex items-center gap-1.5 font-bold text-amber-800">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+              <span>Cách sửa lỗi "Error 400: origin_mismatch":</span>
+            </div>
+            <ol className="list-decimal list-inside space-y-1 text-slate-700 pl-0.5">
+              <li>
+                Truy cập <strong>Google Cloud Console</strong> &rarr; <strong>APIs &amp; Services</strong> &rarr; <strong>Credentials</strong>.
+              </li>
+              <li>
+                Chọn đúng <strong>OAuth 2.0 Client ID</strong> (Loại: <em>Web application</em>) đang dùng.
+              </li>
+              <li>
+                Tại phần <strong>Authorized JavaScript origins</strong>, bấm <strong>ADD URI</strong>.
+              </li>
+              <li>
+                Dán chính xác: <code className="bg-amber-100/90 text-amber-900 font-mono px-1 py-0.5 rounded font-bold">{currentOrigin}</code>
+              </li>
+              <li className="text-red-700 font-medium">
+                <strong>Quy tắc:</strong> KHÔNG thêm dấu gạch chéo <code className="bg-red-100 px-1 rounded">/</code> ở cuối, KHÔNG thêm <code className="bg-red-100 px-1 rounded">/app/login</code>.
+              </li>
+              <li>
+                Bấm <strong>SAVE</strong> và đợi 1–2 phút để Google cập nhật, sau đó mở lại cửa sổ ẩn danh thử lại.
+              </li>
+            </ol>
+            <div className="pt-1">
+              <a
+                href="https://console.cloud.google.com/apis/credentials"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-800 font-semibold underline"
+              >
+                <span>Mở Google Cloud Console Credentials</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Modal: Setup Google Client ID if missing or editing */}
       {showConfigModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
@@ -266,7 +419,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
                   value={inputClientId}
                   onChange={(e) => setInputClientId(e.target.value)}
                   placeholder="Ví dụ: 123456789-abcdef.apps.googleusercontent.com"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 font-mono"
                 />
               </div>
 
@@ -283,7 +436,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
                   disabled={isSavingConfig}
                   className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
                 >
-                  {isSavingConfig ? 'Đang lưu...' : 'Kích hoạt Google Sign-In'}
+                  {isSavingConfig ? 'Đang lưu...' : 'Lưu Google Client ID'}
                 </button>
               </div>
             </form>

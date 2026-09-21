@@ -494,6 +494,8 @@ export const AdminSettingsPage: React.FC = () => {
     return (import.meta.env.VITE_GOOGLE_CLIENT_ID || localStorage.getItem('sblms_google_client_id') || '').trim();
   });
   const [isSavingGoogleClient, setIsSavingGoogleClient] = useState<boolean>(false);
+  const [isOriginCopied, setIsOriginCopied] = useState<boolean>(false);
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
 
   useEffect(() => {
     // Load config from server
@@ -553,15 +555,25 @@ export const AdminSettingsPage: React.FC = () => {
   };
 
   const handleSaveApiConfig = async () => {
-    apiClient.setApiUrl(apiUrl);
-    apiClient.setDataProvider(provider);
-    toastSuccess('Đã lưu cấu hình kết nối Google Sheet Web App!');
+    const clean = (apiUrl || '').trim();
+    if (clean && !apiClient.isValidAppsScriptUrl(clean)) {
+      toastWarning('Đường dẫn không hợp lệ. Đường dẫn Google Apps Script phải bắt đầu bằng https://script.google.com/macros/s/... và kết thúc bằng /exec.');
+      return;
+    }
+    apiClient.setApiUrl(clean);
+    apiClient.setDataProvider(clean ? provider : 'firestore');
+    toastSuccess(clean ? 'Đã lưu cấu hình kết nối Google Sheet Web App!' : 'Đã xóa cấu hình Google Apps Script (sử dụng Cơ sở dữ liệu mặc định).');
     await refreshUserData();
   };
 
   const handleTestConnection = async () => {
-    if (!apiUrl || !apiUrl.trim()) {
+    const clean = (apiUrl || '').trim();
+    if (!clean) {
       toastWarning('Vui lòng nhập URL Google Apps Script Web App /exec trước khi kiểm tra.');
+      return;
+    }
+    if (!apiClient.isValidAppsScriptUrl(clean)) {
+      toastWarning('Đường dẫn không hợp lệ! URL Google Apps Script phải bắt đầu bằng https://script.google.com/macros/s/.../exec');
       return;
     }
     setIsTesting(true);
@@ -569,7 +581,7 @@ export const AdminSettingsPage: React.FC = () => {
 
     try {
       // Temporarily set to test
-      apiClient.setApiUrl(apiUrl);
+      apiClient.setApiUrl(clean);
       const res = await apiClient.ping();
       if (res.ok) {
         setTestResult({ ok: true, message: `Kết nối thành công! ${res.message}` });
@@ -854,6 +866,55 @@ export const AdminSettingsPage: React.FC = () => {
             <p className="text-slate-600 leading-relaxed">
               SMART BLENDED LMS sử dụng Google Identity Services (GIS). Khi người dùng nhấn nút &ldquo;Đăng nhập bằng Google&rdquo; hoặc &ldquo;Tiếp tục với Google&rdquo;, trình duyệt nhận Google ID Token (JWT) được Google ký số. Server sẽ kiểm tra chữ ký và trích xuất email, họ tên chuẩn xác từ Google.
             </p>
+          </div>
+
+          {/* Current Origin and OAuth Configuration Box */}
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                  Frontend Origin Hiện Tại (window.location.origin)
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Đây là địa chỉ bạn CẦN thêm vào <strong>Authorized JavaScript origins</strong> trên Google Cloud Console
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!currentOrigin) return;
+                  navigator.clipboard.writeText(currentOrigin);
+                  setIsOriginCopied(true);
+                  toastSuccess(`Đã sao chép Origin: ${currentOrigin}`);
+                  setTimeout(() => setIsOriginCopied(false), 2500);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer self-start sm:self-auto"
+              >
+                {isOriginCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{isOriginCopied ? 'Đã sao chép!' : 'Sao chép Origin'}</span>
+              </button>
+            </div>
+            <div className="font-mono text-xs bg-white px-3 py-2 rounded-lg border border-slate-300 text-slate-800 break-all select-all font-semibold">
+              {currentOrigin || 'Đang xác định...'}
+            </div>
+
+            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 text-xs space-y-1.5">
+              <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                <span>Quy tắc sửa lỗi "Error 400: origin_mismatch":</span>
+              </div>
+              <ul className="list-disc list-inside space-y-1 text-slate-700 pl-0.5">
+                <li>Vào <strong>Google Cloud Console</strong> &rarr; <strong>APIs &amp; Services</strong> &rarr; <strong>Credentials</strong>.</li>
+                <li>Chọn đúng <strong>OAuth 2.0 Client ID</strong> (Loại: <em>Web application</em>).</li>
+                <li>Tại mục <strong>Authorized JavaScript origins</strong>: Bấm <strong>ADD URI</strong> và dán giá trị origin ở trên.</li>
+                <li className="text-red-700 font-semibold">
+                  ĐÚNG: <code className="bg-amber-100 px-1 py-0.5 rounded text-[11px]">{currentOrigin}</code>
+                </li>
+                <li className="text-red-700">
+                  SAI: KHÔNG thêm dấu gạch chéo cuối <code className="bg-red-100 px-1 rounded">/</code>, KHÔNG thêm <code className="bg-red-100 px-1 rounded">/app/login</code>.
+                </li>
+              </ul>
+            </div>
           </div>
 
           <div>

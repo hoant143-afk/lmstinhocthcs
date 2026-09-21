@@ -118,23 +118,34 @@ export const apiClient = {
     return { ...currentDiagnostic };
   },
 
+  isValidAppsScriptUrl(url: string | null | undefined): boolean {
+    if (!url || typeof url !== 'string') return false;
+    const trimmed = url.trim();
+    return trimmed.startsWith('https://script.google.com/macros/s/') || (trimmed.startsWith('https://') && trimmed.includes('/exec'));
+  },
+
   getApiUrl(): string {
     // 1. Check in-memory cache
-    if (cachedApiUrl && cachedApiUrl.trim()) {
+    if (cachedApiUrl && this.isValidAppsScriptUrl(cachedApiUrl)) {
       return cachedApiUrl.trim();
     }
 
     // 2. Check local storage
     const customUrl = localStorage.getItem(APPS_SCRIPT_URL_STORAGE_KEY);
-    if (customUrl && customUrl.trim()) {
-      cachedApiUrl = customUrl.trim();
-      return cachedApiUrl;
+    if (customUrl) {
+      if (this.isValidAppsScriptUrl(customUrl)) {
+        cachedApiUrl = customUrl.trim();
+        return cachedApiUrl;
+      } else {
+        localStorage.removeItem(APPS_SCRIPT_URL_STORAGE_KEY);
+        cachedApiUrl = '';
+      }
     }
 
     // 3. Fallback to env variable if set
     const envUrl = ((import.meta as any).env?.VITE_APPS_SCRIPT_API_URL as string) ||
                    ((import.meta as any).env?.VITE_APPS_SCRIPT_URL as string) || '';
-    if (envUrl && envUrl.trim()) {
+    if (envUrl && this.isValidAppsScriptUrl(envUrl)) {
       cachedApiUrl = envUrl.trim();
       return cachedApiUrl;
     }
@@ -153,7 +164,7 @@ export const apiClient = {
       const res = await fetch('/api/config');
       if (res.ok) {
         const config = await res.json();
-        if (config?.appsScriptUrl && config.appsScriptUrl.trim()) {
+        if (config?.appsScriptUrl && this.isValidAppsScriptUrl(config.appsScriptUrl)) {
           const url = config.appsScriptUrl.trim();
           cachedApiUrl = url;
           localStorage.setItem(APPS_SCRIPT_URL_STORAGE_KEY, url);
@@ -166,6 +177,14 @@ export const apiClient = {
             maskedEndpoint: maskUrl(url)
           });
           return url;
+        } else {
+          cachedApiUrl = '';
+          localStorage.removeItem(APPS_SCRIPT_URL_STORAGE_KEY);
+          updateDiagnostic({
+            isConfigured: false,
+            rawUrl: '',
+            maskedEndpoint: 'Chưa cấu hình'
+          });
         }
       }
     } catch {
@@ -176,8 +195,8 @@ export const apiClient = {
 
   setApiUrl(url: string): void {
     const cleanUrl = (url || '').trim();
-    cachedApiUrl = cleanUrl;
-    if (cleanUrl) {
+    if (cleanUrl && this.isValidAppsScriptUrl(cleanUrl)) {
+      cachedApiUrl = cleanUrl;
       localStorage.setItem(APPS_SCRIPT_URL_STORAGE_KEY, cleanUrl);
       localStorage.setItem(DATA_PROVIDER_STORAGE_KEY, 'appsScript');
       updateDiagnostic({
@@ -192,6 +211,7 @@ export const apiClient = {
         body: JSON.stringify({ appsScriptUrl: cleanUrl, dataProvider: 'appsScript' })
       }).catch(() => {});
     } else {
+      cachedApiUrl = '';
       localStorage.removeItem(APPS_SCRIPT_URL_STORAGE_KEY);
       localStorage.setItem(DATA_PROVIDER_STORAGE_KEY, 'localStorage');
       updateDiagnostic({
@@ -233,7 +253,7 @@ export const apiClient = {
 
   isAppsScriptConfigured(): boolean {
     const url = this.getApiUrl();
-    return Boolean(url && (url.startsWith('https://script.google.com/macros/s/') || url.includes('/exec')));
+    return this.isValidAppsScriptUrl(url);
   },
 
   /**
@@ -248,7 +268,7 @@ export const apiClient = {
       url = await this.syncConfigFromServer();
     }
 
-    if (!url) {
+    if (!url || !this.isAppsScriptConfigured()) {
       const errInfo: ApiResponse<T> = {
         success: false,
         errorCode: 'API_NOT_CONFIGURED',
@@ -264,7 +284,7 @@ export const apiClient = {
         success: false,
         errorCode: 'API_NOT_CONFIGURED',
         errorMessage: errInfo.error,
-        responseSnippet: 'No URL configured'
+        responseSnippet: 'Chưa cấu hình Google Apps Script hợp lệ'
       });
       return errInfo;
     }
@@ -485,8 +505,8 @@ export const apiClient = {
         contentType
       };
     } catch (err: any) {
-      console.error(`API call failed for action [${action}]:`, err);
-      const isNetworkError = err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError') || err.name === 'TypeError';
+      console.warn(`[apiClient] Request unreachable for action [${action}]:`, err.message || err);
+      const isNetworkError = err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError') || err.name === 'TypeError' || err.name === 'AbortError';
       const errCode = isNetworkError ? 'NETWORK_ERROR' : 'API_ERROR';
       const friendlyMsg = isNetworkError ? ERROR_MESSAGES.API_UNREACHABLE : (err.message || 'Lỗi kết nối máy chủ.');
 

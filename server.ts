@@ -228,6 +228,12 @@ async function verifyGoogleCredential(credential: string): Promise<{
   };
 }
 
+function isValidAppsScriptUrl(url: string | null | undefined): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  return trimmed.startsWith('https://script.google.com/macros/s/') || (trimmed.startsWith('https://') && trimmed.includes('/exec'));
+}
+
 // Load from disk if exists
 function loadDatabaseFromDisk() {
   try {
@@ -235,6 +241,10 @@ function loadDatabaseFromDisk() {
       const raw = fs.readFileSync(DB_FILE_PATH, 'utf-8');
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.classes)) {
+        const rawUrl = (parsed.appsScriptUrl || '').trim();
+        const envUrl = (process.env.VITE_APPS_SCRIPT_API_URL || process.env.VITE_APPS_SCRIPT_URL || '').trim();
+        const validUrl = isValidAppsScriptUrl(rawUrl) ? rawUrl : (isValidAppsScriptUrl(envUrl) ? envUrl : '');
+
         db = {
           teachers: parsed.teachers || SEED_TEACHERS,
           classes: parsed.classes || SEED_CLASSES,
@@ -249,8 +259,8 @@ function loadDatabaseFromDisk() {
           announcements: parsed.announcements || SEED_ANNOUNCEMENTS,
           certificates: parsed.certificates || SEED_CERTIFICATES,
           currentTeacherId: parsed.currentTeacherId || SEED_TEACHER?.id || (SEED_TEACHERS[0]?.id) || undefined,
-          appsScriptUrl: parsed.appsScriptUrl || process.env.VITE_APPS_SCRIPT_API_URL || process.env.VITE_APPS_SCRIPT_URL || '',
-          dataProvider: parsed.dataProvider || 'appsScript',
+          appsScriptUrl: validUrl,
+          dataProvider: parsed.dataProvider || 'firestore',
           googleClientId: parsed.googleClientId || process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || ''
         };
         console.log(`[Database] Loaded persistent data: ${db.classes.length} classes, ${db.students.length} students, ${db.enrollments.length} enrollments`);
@@ -328,8 +338,8 @@ async function startServer() {
   // --- CONFIG (Cross-Device Apps Script URL & Google Auth Sync) ---
   app.get('/api/config', (req, res) => {
     res.json({
-      appsScriptUrl: db.appsScriptUrl || process.env.VITE_APPS_SCRIPT_API_URL || process.env.VITE_APPS_SCRIPT_URL || '',
-      dataProvider: db.dataProvider || 'appsScript',
+      appsScriptUrl: db.appsScriptUrl || '',
+      dataProvider: db.dataProvider || 'firestore',
       googleClientId: db.googleClientId || process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || ''
     });
   });
@@ -337,7 +347,9 @@ async function startServer() {
   app.post('/api/config', (req, res) => {
     const { appsScriptUrl, dataProvider, googleClientId } = req.body;
     if (appsScriptUrl !== undefined) {
-      db.appsScriptUrl = (appsScriptUrl || '').trim();
+      const cleanUrl = (appsScriptUrl || '').trim();
+      const isValid = cleanUrl.startsWith('https://script.google.com/macros/s/') || (cleanUrl.startsWith('https://') && cleanUrl.includes('/exec'));
+      db.appsScriptUrl = isValid ? cleanUrl : '';
     }
     if (dataProvider) {
       db.dataProvider = dataProvider;
@@ -346,7 +358,7 @@ async function startServer() {
       db.googleClientId = (googleClientId || '').trim();
     }
     saveDatabaseToDisk();
-    console.log(`[Config Updated] Apps Script URL: ${db.appsScriptUrl}, Provider: ${db.dataProvider}, Google Client ID: ${db.googleClientId ? 'configured' : 'empty'}`);
+    console.log(`[Config Updated] Apps Script URL: ${db.appsScriptUrl ? 'configured' : 'empty'}, Provider: ${db.dataProvider}, Google Client ID: ${db.googleClientId ? 'configured' : 'empty'}`);
     res.json({
       success: true,
       appsScriptUrl: db.appsScriptUrl,
