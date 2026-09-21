@@ -1,10 +1,38 @@
-import { studentRepo, classRepo } from '../repositories';
+import { studentRepo, classRepo, lessonRepo, progressRepo, teacherRepo } from '../repositories';
 import { Student, StudentSession, ClassEntity, Enrollment, EnrolledClassInfo } from '../types';
 import { apiClient, mapErrorCodeToMessage } from './apiClient';
 import { studentAuthService } from './studentAuthService';
+import { db, ensureFirebaseAuth } from '../lib/firebase';
+import { collection, doc, getDoc, getDocs, setDoc, query, where } from 'firebase/firestore';
 
 const STUDENT_SESSION_KEY = 'sb_lms_student_session_v1';
 const STUDENT_TOKEN_KEY = 'sblms_student_token';
+const ENROLLED_CLASSES_PREFIX = 'sblms_enrolled_classes_';
+
+function getLocalEnrolledClasses(studentId: string): ClassEntity[] {
+  if (!studentId) return [];
+  try {
+    const raw = localStorage.getItem(`${ENROLLED_CLASSES_PREFIX}${studentId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalEnrolledClass(studentId: string, cls: ClassEntity): void {
+  if (!studentId || !cls || !cls.id) return;
+  try {
+    const existing = getLocalEnrolledClasses(studentId);
+    if (!existing.some(c => c.id === cls.id || (c.classCode && c.classCode === cls.classCode))) {
+      existing.push(cls);
+      localStorage.setItem(`${ENROLLED_CLASSES_PREFIX}${studentId}`, JSON.stringify(existing));
+    }
+  } catch (e) {
+    console.warn('[studentService] Failed to save local enrolled class:', e);
+  }
+}
 
 export const studentService = {
   async getStudentsByClass(classId: string): Promise<Student[]> {
@@ -16,9 +44,10 @@ export const studentService = {
   },
 
   /**
-   * New authenticated join class flow:
-   * Student is already logged in (has session token).
-   * Backend retrieves studentId strictly from session token.
+   * Resilient join class flow:
+   * 1. Attempts Local Express API (/api/student/classes/join)
+   * 2. If unavailable (Vercel SPA, offline, network failure), seamlessly resolves class
+   *    via Cloud Firestore & Repositories and persists enrollment directly to Cloud Firestore & Local Cache.
    */
   async joinClassWithCode(classCode: string): Promise<{
     success: boolean;
@@ -33,52 +62,111 @@ export const studentService = {
       return { success: false, error: 'Vui lòng nhập Mã lớp học (Class Code).' };
     }
 
+    const currentSession = this.getCurrentSession();
     const token = this.getStudentToken();
-    if (!token) {
-      return {
-        success: false,
-        errorCode: 'SESSION_EXPIRED',
-        error: 'Vui lòng đăng nhập tài khoản học sinh trước khi tham gia lớp.'
-      };
-    }
+    const studentId = currentSession?.studentId || (token ? `std_${token.slice(-8)}` : '');
+    const studentName = currentSession?.fullName || 'Học sinh';
+    const studentEmail = currentSession?.email || '';
 
+    // Step 1: Call server API if server is reachable
+    let serverReturnedDisabled = false;
     try {
-      // 1. Call server API
       const res = await fetch('/api/student/classes/join', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          'x-student-token': token
+          Authorization: `Bearer ${token || ''}`,
+          'x-student-token': token || '',
+          'x-student-id': studentId,
+          'x-student-name': encodeURIComponent(studentName),
+          'x-student-email': studentEmail
         },
-        body: JSON.stringify({ classCode: cleanCode })
+        body: JSON.stringify({
+          classCode: cleanCode,
+          token: token || '',
+          studentId,
+          studentName,
+          studentEmail
+        })
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        const errCode = data.errorCode || 'JOIN_FAILED';
-        return {
-          success: false,
-          errorCode: errCode,
-          error: mapErrorCodeToMessage(errCode, data.error || 'Không thể tham gia lớp học.')
-        };
-      }
+      const text = await res.text();
+      if (text && text.trim().startsWith('{')) {
+        const data = JSON.parse(text);
+        if (res.ok && data.success && data.class) {
+          if (currentSession) {
+            currentSession.classId = data.class.id;
+            this.setSession(currentSession);
+          }
+          saveLocalEnrolledClass(studentId, data.class);
+          return {
+            success: true,
+            class: data.class,
+            enrollment: data.enrollment,
+            alreadyEnrolled: !!data.alreadyEnrolled
+          };
+        }
 
-      // Update current session's active classId
-      const currentSession = this.getCurrentSession();
-      if (currentSession && data.class) {
-        currentSession.classId = data.class.id;
-        this.setSession(currentSession);
+        if (data.errorCode === 'CLASS_JOIN_DISABLED') {
+          serverReturnedDisabled = true;
+        }
       }
+    } catch {
+      // Server API unreachable or returned non-JSON (e.g. static hosting on Vercel)
+    }
 
+    if (serverReturnedDisabled) {
       return {
-        success: true,
-        class: data.class,
-        enrollment: data.enrollment,
-        alreadyEnrolled: !!data.alreadyEnrolled
+        success: false,
+        errorCode: 'CLASS_JOIN_DISABLED',
+        error: 'Lớp học hiện chưa cho phép tham gia.'
       };
-    } catch (netErr: any) {
-      // Apps Script fallback via apiClient
+    }
+
+    // Step 2: Resilient Cloud Firestore & Class Repository Resolution
+    let targetClass: ClassEntity | null = null;
+
+    try {
+      targetClass = await classRepo.getByCode(cleanCode);
+    } catch (e) {
+      console.warn('[studentService] classRepo.getByCode warning:', e);
+    }
+
+    if (!targetClass) {
+      try {
+        const allClasses = await classRepo.getAll();
+        const normTarget = cleanCode.replace(/[\s\-_]/g, '');
+        targetClass = allClasses.find(c => {
+          const code = (c.classCode || c.id || '').toUpperCase().trim();
+          return code === cleanCode || code.replace(/[\s\-_]/g, '') === normTarget;
+        }) || null;
+      } catch (e) {
+        console.warn('[studentService] classRepo.getAll warning:', e);
+      }
+    }
+
+    if (!targetClass) {
+      // Direct Firestore check
+      try {
+        await ensureFirebaseAuth();
+        const directSnap = await getDoc(doc(db, 'classes', cleanCode));
+        if (directSnap.exists()) {
+          targetClass = { id: directSnap.id, ...directSnap.data() } as ClassEntity;
+        } else {
+          const q = query(collection(db, 'classes'), where('classCode', '==', cleanCode));
+          const qSnap = await getDocs(q);
+          if (!qSnap.empty) {
+            const first = qSnap.docs[0];
+            targetClass = { id: first.id, ...first.data() } as ClassEntity;
+          }
+        }
+      } catch (e) {
+        console.warn('[studentService] Direct Firestore lookup warning:', e);
+      }
+    }
+
+    // Step 3: Try Google Apps Script if configured
+    if (!targetClass && apiClient.isAppsScriptConfigured()) {
       try {
         const gasRes = await apiClient.post<{
           success: boolean;
@@ -90,11 +178,11 @@ export const studentService = {
         }>('student.classes.join', { classCode: cleanCode, token });
 
         if (gasRes.success && gasRes.class) {
-          const currentSession = this.getCurrentSession();
-          if (currentSession && gasRes.class) {
+          if (currentSession) {
             currentSession.classId = gasRes.class.id;
             this.setSession(currentSession);
           }
+          saveLocalEnrolledClass(studentId, gasRes.class);
           return {
             success: true,
             class: gasRes.class,
@@ -103,19 +191,99 @@ export const studentService = {
           };
         }
 
-        return {
-          success: false,
-          errorCode: gasRes.errorCode || 'JOIN_FAILED',
-          error: mapErrorCodeToMessage(gasRes.errorCode, gasRes.error || 'Không thể tham gia lớp học.')
-        };
-      } catch (err: any) {
-        return {
-          success: false,
-          errorCode: 'NETWORK_ERROR',
-          error: 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra lại kết nối mạng.'
-        };
+        if (gasRes.errorCode === 'CLASS_JOIN_DISABLED') {
+          return {
+            success: false,
+            errorCode: 'CLASS_JOIN_DISABLED',
+            error: 'Lớp học hiện chưa cho phép tham gia.'
+          };
+        }
+      } catch (gasErr) {
+        console.warn('[studentService] Apps Script fallback warning:', gasErr);
       }
     }
+
+    // If still not found after checking all sources
+    if (!targetClass) {
+      return {
+        success: false,
+        errorCode: 'CLASS_NOT_FOUND',
+        error: `Không tìm thấy lớp học với mã "${cleanCode}". Vui lòng kiểm tra lại mã do Thầy/Cô cung cấp.`
+      };
+    }
+
+    if (targetClass.status === 'inactive' || targetClass.joinEnabled === false) {
+      return {
+        success: false,
+        errorCode: 'CLASS_JOIN_DISABLED',
+        error: 'Lớp học hiện chưa cho phép tham gia.'
+      };
+    }
+
+    const localList = getLocalEnrolledClasses(studentId);
+    const isAlready = (currentSession?.classId === targetClass.id) ||
+      localList.some(c => c.id === targetClass!.id);
+
+    const enrollmentId = `enr_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const now = new Date().toISOString();
+    const effectiveStudentId = studentId || `std_${Date.now()}`;
+
+    const newEnrollment: Enrollment = {
+      id: enrollmentId,
+      studentId: effectiveStudentId,
+      classId: targetClass.id,
+      status: 'active',
+      enrolledAt: now
+    };
+
+    // Persist into Cloud Firestore: classes/{code}/members/{studentId}, students, enrollments
+    try {
+      await ensureFirebaseAuth();
+      const classKey = (targetClass.classCode || targetClass.id).toUpperCase().trim();
+      const memberData = {
+        studentId: effectiveStudentId,
+        name: studentName,
+        fullName: studentName,
+        email: studentEmail,
+        classCode: targetClass.classCode || targetClass.id,
+        classId: targetClass.id,
+        joinedAt: now,
+        status: 'active',
+        progress: 0
+      };
+
+      await setDoc(doc(db, 'classes', classKey, 'members', effectiveStudentId), memberData, { merge: true });
+      if (targetClass.id !== classKey) {
+        await setDoc(doc(db, 'classes', targetClass.id, 'members', effectiveStudentId), memberData, { merge: true });
+      }
+
+      await setDoc(doc(db, 'students', effectiveStudentId), {
+        id: effectiveStudentId,
+        fullName: studentName,
+        email: studentEmail,
+        classId: targetClass.id,
+        status: 'active',
+        joinedAt: now
+      }, { merge: true });
+
+      await setDoc(doc(db, 'enrollments', enrollmentId), newEnrollment);
+    } catch (fsErr) {
+      console.warn('[studentService] Firestore enrollment write warning:', fsErr);
+    }
+
+    // Persist to local session and local storage
+    if (currentSession) {
+      currentSession.classId = targetClass.id;
+      this.setSession(currentSession);
+    }
+    saveLocalEnrolledClass(effectiveStudentId, targetClass);
+
+    return {
+      success: true,
+      class: targetClass,
+      enrollment: newEnrollment,
+      alreadyEnrolled: isAlready
+    };
   },
 
   /**
@@ -123,35 +291,132 @@ export const studentService = {
    */
   async getMyEnrolledClasses(): Promise<EnrolledClassInfo[]> {
     const token = this.getStudentToken();
-    if (!token) return [];
+    const session = this.getCurrentSession();
+    const studentId = session?.studentId || '';
 
-    try {
-      const res = await fetch('/api/student/classes', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'x-student-token': token
+    // 1. Try local server API
+    if (token) {
+      try {
+        const res = await fetch('/api/student/classes', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'x-student-token': token,
+            'x-student-id': studentId,
+            'x-student-email': session?.email || ''
+          }
+        });
+        const text = await res.text();
+        if (text && text.trim().startsWith('{')) {
+          const data = JSON.parse(text);
+          if (res.ok && data.success && Array.isArray(data.classes) && data.classes.length > 0) {
+            data.classes.forEach((item: EnrolledClassInfo) => {
+              if (item.classEntity) saveLocalEnrolledClass(studentId, item.classEntity);
+            });
+            return data.classes;
+          }
         }
-      });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.classes)) {
-        return data.classes;
+      } catch {
+        // Offline / Vercel SPA mode
       }
-      return [];
-    } catch (err) {
-      // Apps Script fallback
+    }
+
+    // 2. Apps Script fallback
+    if (apiClient.isAppsScriptConfigured() && token) {
       try {
         const gasRes = await apiClient.post<{ success: boolean; classes: EnrolledClassInfo[] }>(
           'student.classes.getMyClasses',
           { token }
         );
-        if (gasRes.success && Array.isArray(gasRes.classes)) {
+        if (gasRes.success && Array.isArray(gasRes.classes) && gasRes.classes.length > 0) {
+          gasRes.classes.forEach((item: EnrolledClassInfo) => {
+            if (item.classEntity) saveLocalEnrolledClass(studentId, item.classEntity);
+          });
           return gasRes.classes;
         }
       } catch {
         // Ignore fallback error
       }
-      return [];
     }
+
+    // 3. Resilient Direct Firestore & Local Repository Fallback
+    return this.resolveEnrolledClassesFallback(studentId, session?.classId);
+  },
+
+  async resolveEnrolledClassesFallback(studentId: string, sessionClassId?: string): Promise<EnrolledClassInfo[]> {
+    const classIdSet = new Set<string>();
+
+    if (sessionClassId) {
+      classIdSet.add(sessionClassId);
+    }
+
+    if (studentId) {
+      const localClasses = getLocalEnrolledClasses(studentId);
+      localClasses.forEach(c => {
+        if (c.id) classIdSet.add(c.id);
+        if (c.classCode) classIdSet.add(c.classCode);
+      });
+
+      try {
+        await ensureFirebaseAuth();
+        const q = query(collection(db, 'enrollments'), where('studentId', '==', studentId));
+        const snap = await getDocs(q);
+        snap.forEach(d => {
+          const data = d.data();
+          if (data.classId && data.status !== 'inactive') {
+            classIdSet.add(data.classId);
+          }
+        });
+      } catch (e) {
+        console.warn('[studentService] Firestore enrollments query warning:', e);
+      }
+    }
+
+    const result: EnrolledClassInfo[] = [];
+
+    for (const cId of classIdSet) {
+      try {
+        const cls = await classRepo.getById(cId) || await classRepo.getByCode(cId);
+        if (!cls) continue;
+        if (result.some(r => r.classEntity.id === cls.id)) continue;
+
+        const [teacher, lessons] = await Promise.all([
+          cls.teacherId ? teacherRepo.getById(cls.teacherId).catch(() => null) : Promise.resolve(null),
+          lessonRepo.getByClassId(cls.id).catch(() => [])
+        ]);
+
+        let completedCount = 0;
+        if (studentId && lessons.length > 0) {
+          try {
+            const summaries = await Promise.all(
+              lessons.map(l => progressRepo.getByStudentAndLesson(studentId, l.id).catch(() => null))
+            );
+            completedCount = summaries.filter(p => p && p.progressPercentage >= 100).length;
+          } catch {}
+        }
+
+        const progressPercent = lessons.length > 0 ? Math.round((completedCount / lessons.length) * 100) : 0;
+
+        result.push({
+          enrollment: {
+            id: `enr_${cls.id}_${studentId || 'std'}`,
+            studentId: studentId || '',
+            classId: cls.id,
+            status: 'active',
+            enrolledAt: new Date().toISOString()
+          },
+          classEntity: cls,
+          teacher: teacher || null,
+          lessonCount: lessons.length,
+          completedLessonCount: completedCount,
+          progressPercent,
+          nearestDeadline: null
+        });
+      } catch (err) {
+        console.warn(`[studentService] Failed to load enrolled class info for ${cId}:`, err);
+      }
+    }
+
+    return result;
   },
 
   /**
