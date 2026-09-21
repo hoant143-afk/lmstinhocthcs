@@ -34,7 +34,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
   className = ''
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const envClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
+  const envClientId = (import.meta.env?.VITE_GOOGLE_CLIENT_ID || '').trim();
   const defaultAppletClientId = (firebaseConfigData as any)?.oAuthClientId || '';
 
   const [clientId, setClientId] = useState<string>(() => {

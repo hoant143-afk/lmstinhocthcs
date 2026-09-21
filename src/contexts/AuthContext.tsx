@@ -43,7 +43,7 @@ interface AuthContextType {
   setCurrentClass: (cls: ClassEntity | null) => void;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const ROLE_STORAGE_KEY = 'sb_lms_active_role_v1';
 const TEACHER_TOKEN_KEY = 'sblms_teacher_token';
