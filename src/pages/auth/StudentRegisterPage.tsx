@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
+import { studentAuthService } from '../../services/studentAuthService';
 import { GoogleSignInButton } from '../../components/auth/GoogleSignInButton';
+import { validateEmailForRegistration, isGmailAddress, isDisposableEmail } from '../../utils/emailValidation';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import {
@@ -15,12 +17,13 @@ import {
   ArrowRight,
   AlertCircle,
   Loader2,
+  ShieldCheck,
   CheckCircle2
 } from 'lucide-react';
 
 export const StudentRegisterPage: React.FC = () => {
   const navigate = useNavigate();
-  const { registerStudent, loginStudentWithGoogle, isAuthenticatedStudent } = useAuth();
+  const { registerStudent, loginStudentWithGoogle, isAuthenticatedStudent, isLoading } = useAuth();
   const { toastSuccess, toastError } = useToast();
 
   const [fullName, setFullName] = useState('');
@@ -38,6 +41,25 @@ export const StudentRegisterPage: React.FC = () => {
     }
   }, [isAuthenticatedStudent, navigate]);
 
+  const handleGoogleSuccess = useCallback(async (credential: string, userProfile?: any) => {
+    try {
+      await loginStudentWithGoogle(credential, userProfile);
+      toastSuccess('Đăng ký / Đăng nhập tài khoản Google thành công!');
+      navigate('/app', { replace: true });
+    } catch (err: any) {
+      toastError(err?.message || 'Đăng ký bằng Google thất bại.');
+    }
+  }, [loginStudentWithGoogle, navigate, toastSuccess, toastError]);
+
+  if (isLoading && studentAuthService.getToken()) {
+    return (
+      <div className="min-h-[70vh] flex flex-col items-center justify-center space-y-3">
+        <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+        <p className="text-sm font-medium text-slate-500">Đang xác thực phiên học sinh...</p>
+      </div>
+    );
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
@@ -53,6 +75,15 @@ export const StudentRegisterPage: React.FC = () => {
       setErrorMsg('Vui lòng nhập địa chỉ Email.');
       return;
     }
+
+    // Validate email format and anti-spoofing
+    const validation = validateEmailForRegistration(cleanEmail);
+    if (!validation.valid) {
+      setErrorMsg(validation.error || 'Địa chỉ Email không hợp lệ.');
+      toastError(validation.error || 'Địa chỉ Email không hợp lệ.');
+      return;
+    }
+
     if (password.length < 6) {
       setErrorMsg('Mật khẩu phải có độ dài từ 6 ký tự trở lên.');
       return;
@@ -106,15 +137,7 @@ export const StudentRegisterPage: React.FC = () => {
               <GoogleSignInButton
                 role="student"
                 buttonText="Tiếp tục với Google"
-                onSuccess={async (credential) => {
-                  try {
-                    await loginStudentWithGoogle(credential);
-                    toastSuccess('Đăng ký / Đăng nhập tài khoản Google thành công!');
-                    navigate('/app', { replace: true });
-                  } catch (err: any) {
-                    toastError(err?.message || 'Đăng ký bằng Google thất bại.');
-                  }
-                }}
+                onSuccess={handleGoogleSuccess}
               />
             </div>
 
@@ -172,6 +195,25 @@ export const StudentRegisterPage: React.FC = () => {
                   className="w-full pl-9 pr-3.5 py-2.5 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition-colors"
                 />
               </div>
+
+              {/* Anti-spoofing indicators */}
+              {isGmailAddress(email) && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-start gap-2 animate-in fade-in duration-150">
+                  <ShieldCheck className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div className="leading-relaxed">
+                    <span className="font-semibold text-blue-800">Xác thực chính chủ Google:</span> Hòm thư <strong>@gmail.com</strong> không thể tạo mật khẩu tự do để chống tài khoản mạo danh. Vui lòng bấm nút <strong>"Tiếp tục với Google"</strong> ở trên để vào app ngay.
+                  </div>
+                </div>
+              )}
+
+              {isDisposableEmail(email) && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 flex items-start gap-2 animate-in fade-in duration-150">
+                  <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                  <div className="leading-relaxed">
+                    <span className="font-semibold">Hòm thư bị chặn:</span> Địa chỉ email thuộc danh sách hòm thư tạm thời / rác. Vui lòng nhập email thật của bạn.
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Password */}

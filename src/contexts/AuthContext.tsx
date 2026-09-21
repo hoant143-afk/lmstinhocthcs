@@ -30,10 +30,10 @@ interface AuthContextType {
   registerTeacher: (dto: TeacherRegisterDto) => Promise<Teacher>;
   logoutTeacher: () => Promise<void>;
   loginAsTeacherQuick: (teacherId?: string) => Promise<Teacher>;
-  loginTeacherWithGoogle: (credential: string) => Promise<Teacher>;
+  loginTeacherWithGoogle: (credential: string, userProfile?: any) => Promise<Teacher>;
   loginStudent: (dto: StudentLoginDto) => Promise<StudentSession>;
   registerStudent: (dto: StudentRegisterDto) => Promise<StudentSession>;
-  loginStudentWithGoogle: (credential: string) => Promise<StudentSession>;
+  loginStudentWithGoogle: (credential: string, userProfile?: any) => Promise<StudentSession>;
   loginAsStudent: (session: StudentSession) => Promise<void>;
   logoutStudent: () => Promise<void>;
   logout: () => void;
@@ -104,9 +104,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      // 3. Load teacher from storage/API
-      const currentTeacher = await teacherRepo.getCurrentTeacher();
-      setTeacher(currentTeacher);
+      // 3. Load teacher from storage/API only if authenticated
+      const teacherToken = authService.getTeacherToken();
+      if (teacherToken) {
+        const currentTeacher = await authService.getCurrentTeacher();
+        setTeacher(currentTeacher);
+      } else {
+        setTeacher(null);
+      }
     } catch (err) {
       console.error('Error initializing Auth:', err);
     } finally {
@@ -158,8 +163,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     throw new Error('Không tìm thấy tài khoản giáo viên demo.');
   };
 
-  const loginTeacherWithGoogle = async (credential: string): Promise<Teacher> => {
-    const loggedTeacher = await authService.loginTeacherWithGoogle(credential);
+  const loginTeacherWithGoogle = async (credential: string, userProfile?: any): Promise<Teacher> => {
+    const loggedTeacher = await authService.loginTeacherWithGoogle(credential, userProfile);
     localStorage.setItem(TEACHER_TOKEN_KEY, `sblms_tch_${loggedTeacher.id}_${Date.now()}`);
     setTeacher(loggedTeacher);
     setRole('ROLE_TEACHER');
@@ -210,8 +215,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return session;
   };
 
-  const loginStudentWithGoogle = async (credential: string): Promise<StudentSession> => {
-    const res = await studentAuthService.loginWithGoogle(credential);
+  const loginStudentWithGoogle = async (credential: string, userProfile?: any): Promise<StudentSession> => {
+    const res = await studentAuthService.loginWithGoogle(credential, userProfile);
     if (!res.success || !res.student || !res.token) {
       throw new Error(res.error || 'Đăng nhập Google thất bại.');
     }
