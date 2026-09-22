@@ -30,10 +30,10 @@ interface AuthContextType {
   registerTeacher: (dto: TeacherRegisterDto) => Promise<Teacher>;
   logoutTeacher: () => Promise<void>;
   loginAsTeacherQuick: (teacherId?: string) => Promise<Teacher>;
-  loginTeacherWithGoogle: (credential: string, userProfile?: any) => Promise<Teacher>;
+  loginTeacherWithGoogle: (credential: string) => Promise<Teacher>;
   loginStudent: (dto: StudentLoginDto) => Promise<StudentSession>;
   registerStudent: (dto: StudentRegisterDto) => Promise<StudentSession>;
-  loginStudentWithGoogle: (credential: string, userProfile?: any) => Promise<StudentSession>;
+  loginStudentWithGoogle: (credential: string) => Promise<StudentSession>;
   loginAsStudent: (session: StudentSession) => Promise<void>;
   logoutStudent: () => Promise<void>;
   logout: () => void;
@@ -163,8 +163,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     throw new Error('Không tìm thấy tài khoản giáo viên demo.');
   };
 
-  const loginTeacherWithGoogle = async (credential: string, userProfile?: any): Promise<Teacher> => {
-    const loggedTeacher = await authService.loginTeacherWithGoogle(credential, userProfile);
+  const loginTeacherWithGoogle = async (credential: string): Promise<Teacher> => {
+    const loggedTeacher = await authService.loginTeacherWithGoogle(credential);
     localStorage.setItem(TEACHER_TOKEN_KEY, `sblms_tch_${loggedTeacher.id}_${Date.now()}`);
     setTeacher(loggedTeacher);
     setRole('ROLE_TEACHER');
@@ -215,8 +215,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return session;
   };
 
-  const loginStudentWithGoogle = async (credential: string, userProfile?: any): Promise<StudentSession> => {
-    const res = await studentAuthService.loginWithGoogle(credential, userProfile);
+  const loginStudentWithGoogle = async (credential: string): Promise<StudentSession> => {
+    const res = await studentAuthService.loginWithGoogle(credential);
     if (!res.success || !res.student || !res.token) {
       throw new Error(res.error || 'Đăng nhập Google thất bại.');
     }

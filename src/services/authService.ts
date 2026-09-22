@@ -148,9 +148,9 @@ export const authService = {
     return newTeacher;
   },
 
-  async loginTeacherWithGoogle(credential: string, userProfile?: any): Promise<Teacher> {
-    if (!credential && !userProfile) {
-      throw new Error('Thiếu thông tin xác thực Google.');
+  async loginTeacherWithGoogle(credential: string): Promise<Teacher> {
+    if (!credential) {
+      throw new Error('Thiếu Google credential token.');
     }
 
     // 1. Try local server API
@@ -158,7 +158,7 @@ export const authService = {
       const res = await fetch('/api/teacher-auth/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential, userProfile })
+        body: JSON.stringify({ credential })
       });
 
       const data = await res.json();
@@ -171,14 +171,16 @@ export const authService = {
         await teacherRepo.setCurrentTeacher(teacher);
         return teacher;
       } else if (data.error) {
-        console.warn('[authService] Server error on teacher Google login:', data.error);
+        throw new Error(data.error);
       }
     } catch (err: any) {
-      console.warn('[authService] Network error on teacher Google login:', err.message);
+      if (err.message && !err.message.includes('fetch')) {
+        throw err;
+      }
     }
 
     // 2. Try Apps Script fallback if configured
-    if (apiClient.isAppsScriptConfigured() && credential) {
+    if (apiClient.isAppsScriptConfigured()) {
       try {
         const gasRes = await apiClient.post<{
           success: boolean;
@@ -197,23 +199,26 @@ export const authService = {
           await teacherRepo.setCurrentTeacher(teacher);
           return teacher;
         }
+        if (gasRes.error) {
+          throw new Error(gasRes.error);
+        }
       } catch (err: any) {
         console.warn('Apps Script Google Auth error:', err);
       }
     }
 
-    // 3. Fallback for Static Hostings or when direct profile provided
-    const payload = userProfile || (credential ? decodeGoogleCredential(credential) : null);
-    if (payload && (payload.email || payload.sub || payload.uid)) {
-      const email = String(payload.email || '').toLowerCase().trim();
+    // 3. Fallback for Static Hostings (e.g. Vercel SPA without backend)
+    const payload = decodeGoogleCredential(credential);
+    if (payload && payload.email) {
+      const email = payload.email.toLowerCase().trim();
       let teacher = await teacherRepo.getByEmail(email);
 
       if (!teacher) {
         // Automatically create or register teacher from verified Google account
         teacher = await teacherRepo.create({
-          fullName: payload.name || payload.displayName || email.split('@')[0] || 'Giáo viên',
-          email: email || `teacher_${Date.now()}@edu.vn`,
-          avatarUrl: payload.picture || payload.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+          fullName: payload.name || email.split('@')[0],
+          email,
+          avatarUrl: payload.picture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
           authProvider: 'google',
           schoolName: 'Trường THPT & THCS',
           subject: 'Tin học & STEM',
@@ -221,7 +226,7 @@ export const authService = {
         });
       }
 
-      const clientToken = `sblms_tch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const clientToken = `gtoken_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       this.setTeacherToken(clientToken);
       await teacherRepo.setCurrentTeacher(teacher);
       return teacher;

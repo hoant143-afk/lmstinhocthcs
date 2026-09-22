@@ -37,9 +37,9 @@ export const StudentLoginPage: React.FC = () => {
     }
   }, [isAuthenticatedStudent, navigate]);
 
-  const handleGoogleSuccess = useCallback(async (credential: string, userProfile?: any) => {
+  const handleGoogleSuccess = useCallback(async (credential: string) => {
     try {
-      await loginStudentWithGoogle(credential, userProfile);
+      await loginStudentWithGoogle(credential);
       toastSuccess('Đăng nhập tài khoản Google thành công!');
       const from = (location.state as any)?.from?.pathname || '/app';
       navigate(from, { replace: true });

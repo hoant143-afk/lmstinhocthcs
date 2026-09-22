@@ -3,7 +3,6 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { GoogleSignInButton } from '../../components/auth/GoogleSignInButton';
-import { validateEmailForRegistration, isGmailAddress, isDisposableEmail } from '../../utils/emailValidation';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
@@ -17,8 +16,7 @@ import {
   ShieldCheck,
   GraduationCap,
   HelpCircle,
-  Loader2,
-  AlertCircle
+  Loader2
 } from 'lucide-react';
 
 export const TeacherLoginPage: React.FC = () => {
@@ -53,9 +51,9 @@ export const TeacherLoginPage: React.FC = () => {
     }
   }, [teacher, redirectPath, navigate]);
 
-  const handleGoogleSuccess = useCallback(async (credential: string, userProfile?: any) => {
+  const handleGoogleSuccess = useCallback(async (credential: string) => {
     try {
-      const logged = await loginTeacherWithGoogle(credential, userProfile);
+      const logged = await loginTeacherWithGoogle(credential);
       toastSuccess(`Chào mừng Thầy/Cô ${logged.fullName} đã xác thực Google thành công!`);
       navigate(redirectPath, { replace: true });
     } catch (err: any) {
@@ -104,13 +102,6 @@ export const TeacherLoginPage: React.FC = () => {
       toastError('Vui lòng nhập Email công tác');
       return;
     }
-
-    const emailValidation = validateEmailForRegistration(regEmail.trim());
-    if (!emailValidation.valid) {
-      toastError(emailValidation.error || 'Địa chỉ email không hợp lệ.');
-      return;
-    }
-
     if (!regPassword || regPassword.length < 6) {
       toastError('Mật khẩu cần có tối thiểu 6 ký tự');
       return;
@@ -323,34 +314,14 @@ export const TeacherLoginPage: React.FC = () => {
                 onChange={e => setRegFullName(e.target.value)}
               />
 
-              <div className="space-y-1.5">
-                <Input
-                  label="Email Công Tác / Trường Học"
-                  type="email"
-                  required
-                  placeholder="VD: hoang.nv@thpt.edu.vn"
-                  value={regEmail}
-                  onChange={e => setRegEmail(e.target.value)}
-                />
-
-                {isGmailAddress(regEmail) && (
-                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2 animate-in fade-in duration-150">
-                    <ShieldCheck className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div className="leading-relaxed">
-                      <span className="font-semibold text-blue-800">Xác thực chính chủ Google:</span> Địa chỉ <strong>@gmail.com</strong> không thể tạo mật khẩu cục bộ để tránh mạo danh giáo viên. Vui lòng bấm nút <strong>"Tiếp tục bằng tài khoản Google"</strong> ở trên để truy cập bảng điều khiển ngay lập tức.
-                    </div>
-                  </div>
-                )}
-
-                {isDisposableEmail(regEmail) && (
-                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2 animate-in fade-in duration-150">
-                    <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
-                    <div className="leading-relaxed">
-                      <span className="font-semibold">Hòm thư bị chặn:</span> Địa chỉ email thuộc danh sách hòm thư tạm thời / rác. Vui lòng nhập email thật của Thầy/Cô.
-                    </div>
-                  </div>
-                )}
-              </div>
+              <Input
+                label="Email Công Tác / Trường Học"
+                type="email"
+                required
+                placeholder="VD: hoang.nv@thpt.edu.vn"
+                value={regEmail}
+                onChange={e => setRegEmail(e.target.value)}
+              />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">

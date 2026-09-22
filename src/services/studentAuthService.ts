@@ -38,7 +38,7 @@ export const studentAuthService = {
     localStorage.setItem(STUDENT_SESSION_KEY, JSON.stringify(session));
   },
 
-  async register(dto: StudentRegisterDto & { otpCode?: string }): Promise<{
+  async register(dto: StudentRegisterDto): Promise<{
     success: boolean;
     student?: Student;
     token?: string;
@@ -48,7 +48,6 @@ export const studentAuthService = {
     const fullName = (dto.fullName || '').trim();
     const email = (dto.email || '').trim().toLowerCase();
     const password = dto.password || '';
-    const otpCode = dto.otpCode?.trim();
 
     if (!fullName) {
       return { success: false, error: 'Vui lòng nhập đầy đủ Họ và tên học sinh.' };
@@ -65,7 +64,7 @@ export const studentAuthService = {
       const res = await fetch('/api/student-auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullName, email, password, otpCode })
+        body: JSON.stringify({ fullName, email, password })
       });
 
       const data = await res.json();
@@ -225,18 +224,18 @@ export const studentAuthService = {
     }
   },
 
-  async loginWithGoogle(credential: string, userProfile?: any): Promise<{
+  async loginWithGoogle(credential: string): Promise<{
     success: boolean;
     student?: Student;
     token?: string;
     error?: string;
     errorCode?: string;
   }> {
-    if (!credential && !userProfile) {
+    if (!credential) {
       return {
         success: false,
         errorCode: 'MISSING_CREDENTIAL',
-        error: 'Thiếu thông tin xác thực Google.'
+        error: 'Thiếu Google credential token.'
       };
     }
 
@@ -245,87 +244,29 @@ export const studentAuthService = {
       const res = await fetch('/api/student-auth/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential, userProfile })
+        body: JSON.stringify({ credential })
       });
 
       const data = await res.json();
-      if (res.ok && data.success) {
-        const token = data.token || data.data?.token;
-        const student = data.student || data.data?.user;
-
-        if (token && student) {
-          this.setToken(token);
-          const studentSession: StudentSession = {
-            token,
-            studentId: student.id,
-            fullName: student.fullName,
-            email: student.email,
-            avatarUrl: student.avatarUrl,
-            joinedAt: student.createdAt || new Date().toISOString()
-          };
-          this.setLocalSession(studentSession);
-
-          return {
-            success: true,
-            student,
-            token
-          };
-        }
+      if (!res.ok || !data.success) {
+        return {
+          success: false,
+          errorCode: data.errorCode || 'GOOGLE_AUTH_FAILED',
+          error: data.error || 'Đăng nhập Google không thành công.'
+        };
       }
-    } catch (netErr: any) {
-      console.warn('[studentAuthService] Server Google login failed, using fallback:', netErr.message);
-    }
 
-    // 2. Apps Script fallback if configured
-    if (apiClient.isAppsScriptConfigured() && credential) {
-      try {
-        const gasRes = await apiClient.post<{
-          success: boolean;
-          token: string;
-          user?: Student;
-          student?: Student;
-          error?: string;
-        }>('auth.google', { credential, role: 'student' });
+      const token = data.token || data.data?.token;
+      const student = data.student || data.data?.user;
 
-        if (gasRes.success && (gasRes.token || (gasRes as any).data?.token)) {
-          const token = gasRes.token || (gasRes as any).data?.token;
-          const student = gasRes.student || gasRes.user || (gasRes as any).data?.user;
-          this.setToken(token);
-          const studentSession: StudentSession = {
-            token,
-            studentId: student.id,
-            fullName: student.fullName,
-            email: student.email,
-            avatarUrl: student.avatarUrl,
-            joinedAt: student.createdAt || new Date().toISOString()
-          };
-          this.setLocalSession(studentSession);
-          return { success: true, student, token };
-        }
-      } catch (gasErr: any) {
-        console.warn('Apps Script student Google Auth fallback error:', gasErr);
+      if (!token || !student) {
+        return {
+          success: false,
+          errorCode: 'INVALID_RESPONSE',
+          error: 'Phản hồi từ máy chủ không hợp lệ.'
+        };
       }
-    }
 
-    // 3. Resilient Client-side Fallback (guarantees student can enter app even if backend is delayed)
-    const profile = userProfile || (credential ? decodeGoogleCredential(credential) : null);
-    if (profile && (profile.email || profile.sub || profile.uid)) {
-      const email = String(profile.email || '').toLowerCase().trim();
-      const sub = profile.sub || profile.uid || `google_${Date.now()}`;
-      const studentId = `std_g_${sub}`;
-      const now = new Date().toISOString();
-      const student: Student = {
-        id: studentId,
-        fullName: profile.name || profile.displayName || email.split('@')[0] || 'Học sinh',
-        email: email || `${studentId}@student.local`,
-        avatarUrl: profile.picture || profile.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-        authProvider: 'google',
-        status: 'active',
-        createdAt: now,
-        googleSub: sub
-      };
-
-      const token = `sblms_std_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
       this.setToken(token);
       const studentSession: StudentSession = {
         token,
@@ -333,17 +274,84 @@ export const studentAuthService = {
         fullName: student.fullName,
         email: student.email,
         avatarUrl: student.avatarUrl,
-        joinedAt: student.createdAt
+        joinedAt: student.createdAt || new Date().toISOString()
       };
       this.setLocalSession(studentSession);
-      return { success: true, student, token };
-    }
 
-    return {
-      success: false,
-      errorCode: 'GOOGLE_AUTH_FAILED',
-      error: 'Không thể xác thực thông tin tài khoản Google. Vui lòng thử lại.'
-    };
+      return {
+        success: true,
+        student,
+        token
+      };
+    } catch (netErr: any) {
+      // 2. Apps Script fallback if configured
+      if (apiClient.isAppsScriptConfigured()) {
+        try {
+          const gasRes = await apiClient.post<{
+            success: boolean;
+            token: string;
+            user?: Student;
+            student?: Student;
+            error?: string;
+          }>('auth.google', { credential, role: 'student' });
+
+          if (gasRes.success && (gasRes.token || (gasRes as any).data?.token)) {
+            const token = gasRes.token || (gasRes as any).data?.token;
+            const student = gasRes.student || gasRes.user || (gasRes as any).data?.user;
+            this.setToken(token);
+            const studentSession: StudentSession = {
+              token,
+              studentId: student.id,
+              fullName: student.fullName,
+              email: student.email,
+              avatarUrl: student.avatarUrl,
+              joinedAt: student.createdAt || new Date().toISOString()
+            };
+            this.setLocalSession(studentSession);
+            return { success: true, student, token };
+          }
+        } catch (gasErr: any) {
+          console.warn('Apps Script student Google Auth fallback error:', gasErr);
+        }
+      }
+
+      // 3. Fallback for Static Hostings (e.g. Vercel SPA)
+      const payload = decodeGoogleCredential(credential);
+      if (payload && payload.email) {
+        const email = payload.email.toLowerCase().trim();
+        const studentId = `std_g_${payload.sub || Math.random().toString(36).slice(2, 10)}`;
+        const now = new Date().toISOString();
+        const student: Student = {
+          id: studentId,
+          fullName: payload.name || email.split('@')[0],
+          email,
+          avatarUrl: payload.picture || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+          authProvider: 'google',
+          status: 'active',
+          createdAt: now,
+          googleSub: payload.sub
+        };
+
+        const token = `gtoken_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        this.setToken(token);
+        const studentSession: StudentSession = {
+          token,
+          studentId: student.id,
+          fullName: student.fullName,
+          email: student.email,
+          avatarUrl: student.avatarUrl,
+          joinedAt: student.createdAt
+        };
+        this.setLocalSession(studentSession);
+        return { success: true, student, token };
+      }
+
+      return {
+        success: false,
+        errorCode: 'GOOGLE_AUTH_FAILED',
+        error: 'Không thể xác thực thông tin tài khoản Google. Vui lòng thử lại.'
+      };
+    }
   },
 
   async logout(): Promise<void> {
@@ -386,21 +394,6 @@ export const studentAuthService = {
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        const local = this.getLocalSession();
-        if (local && local.token === token) {
-          // Keep active local session
-          return {
-            success: true,
-            student: {
-              id: local.studentId,
-              fullName: local.fullName,
-              email: local.email,
-              avatarUrl: local.avatarUrl,
-              status: 'active',
-              createdAt: local.joinedAt || new Date().toISOString()
-            }
-          };
-        }
         this.clearSession();
         return {
           success: false,

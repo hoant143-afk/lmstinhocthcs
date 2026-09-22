@@ -209,86 +209,72 @@ function getTeacherSessionFromReq(req: express.Request): { session: SessionEntit
 }
 
 /**
- * Real Google ID Token Verification with JWT & Tokeninfo Fallback.
- * Verifies tokeninfo endpoint first; if network/offline, safely verifies JWT claims and expiration.
- * Does NOT trust arbitrary unverified credentials.
+ * Real Google ID Token Verification via Google's tokeninfo API.
+ * Verifies issuer, expiration, email, and email_verified.
+ * Does NOT trust arbitrary or unverified credentials.
  */
-async function verifyGoogleCredential(
-  credential: string,
-  fallbackProfile?: { email?: string; name?: string; picture?: string; sub?: string }
-): Promise<{
+async function verifyGoogleCredential(credential: string): Promise<{
   sub: string;
   email: string;
   name: string;
   picture: string;
   emailVerified: boolean;
 }> {
-  const cleanCred = (credential || '').trim();
-
-  // 1. Try Google Tokeninfo API if credential is provided
-  if (cleanCred && cleanCred.length > 20) {
-    try {
-      const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(cleanCred)}`;
-      const response = await fetch(url);
-      if (response.ok) {
-        const payload: any = await response.json();
-        if (payload && payload.email) {
-          return {
-            sub: String(payload.sub || payload.user_id),
-            email: String(payload.email).trim().toLowerCase(),
-            name: String(payload.name || payload.email.split('@')[0]),
-            picture: String(payload.picture || ''),
-            emailVerified: payload.email_verified === 'true' || payload.email_verified === true
-          };
-        }
-      }
-    } catch (tokenInfoErr: any) {
-      console.warn('[Google Auth] tokeninfo check failed, falling back to JWT claims:', tokenInfoErr.message);
-    }
-
-    // 2. Safely decode JWT (compatible with Google Identity Services & Firebase Auth tokens)
-    try {
-      const parts = cleanCred.split('.');
-      if (parts.length >= 2) {
-        const base64Url = parts[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = Buffer.from(base64, 'base64').toString('utf8');
-        const payload = JSON.parse(jsonPayload);
-
-        const email = payload.email || payload.user_id || payload.sub;
-        if (email && typeof email === 'string' && email.includes('@')) {
-          // Check expiration
-          const expNum = parseInt(payload.exp, 10);
-          if (!isNaN(expNum) && expNum * 1000 < Date.now() - 300000) {
-            throw new Error('EXPIRED_TOKEN: Google ID Token đã hết hạn.');
-          }
-
-          return {
-            sub: String(payload.sub || payload.user_id || `g_${Date.now()}`),
-            email: String(email).trim().toLowerCase(),
-            name: String(payload.name || payload.displayName || email.split('@')[0]),
-            picture: String(payload.picture || payload.photoURL || ''),
-            emailVerified: payload.email_verified === true || payload.email_verified === 'true' || true
-          };
-        }
-      }
-    } catch (jwtErr: any) {
-      console.warn('[Google Auth] JWT claims decode failed:', jwtErr.message);
-    }
+  if (!credential || typeof credential !== 'string') {
+    throw new Error('MISSING_CREDENTIAL: Không tìm thấy Google ID token.');
   }
 
-  // 3. Fallback to client-verified profile from Firebase Google Auth
-  if (fallbackProfile && fallbackProfile.email && fallbackProfile.email.includes('@')) {
-    return {
-      sub: String(fallbackProfile.sub || `g_fb_${Date.now()}`),
-      email: String(fallbackProfile.email).trim().toLowerCase(),
-      name: String(fallbackProfile.name || fallbackProfile.email.split('@')[0]),
-      picture: String(fallbackProfile.picture || ''),
-      emailVerified: true
-    };
+  const cleanCred = credential.trim();
+  const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(cleanCred)}`;
+
+  let response: any;
+  try {
+    response = await fetch(url);
+  } catch (err: any) {
+    throw new Error(`NETWORK_ERROR: Không thể kết nối tới Google để xác minh token: ${err.message}`);
   }
 
-  throw new Error('INVALID_GOOGLE_TOKEN: Không thể xác minh tài khoản Google.');
+  if (!response.ok) {
+    const errorData: any = await response.json().catch(() => ({}));
+    const desc = errorData.error_description || errorData.error || response.statusText;
+    throw new Error(`INVALID_GOOGLE_TOKEN: Xác minh Google ID Token thất bại (${desc})`);
+  }
+
+  const payload: any = await response.json();
+
+  // 1. Verify issuer
+  if (payload.iss !== 'accounts.google.com' && payload.iss !== 'https://accounts.google.com') {
+    throw new Error('INVALID_ISSUER: Issuer của Google token không hợp lệ (không phải accounts.google.com).');
+  }
+
+  // 2. Verify audience if configured
+  const configuredClientId = db.googleClientId || process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+  if (configuredClientId && payload.aud && payload.aud !== configuredClientId) {
+    console.warn(`[Google Auth Warning] Token audience mismatch: token aud=${payload.aud}, configured=${configuredClientId}`);
+  }
+
+  // 3. Verify expiration
+  const expNum = parseInt(payload.exp, 10);
+  if (!isNaN(expNum) && expNum * 1000 < Date.now()) {
+    throw new Error('EXPIRED_TOKEN: Google ID Token đã hết hạn.');
+  }
+
+  // 4. Verify email & email_verified
+  const emailVerified = payload.email_verified === 'true' || payload.email_verified === true;
+  if (!payload.email) {
+    throw new Error('NO_EMAIL: Tài khoản Google không cung cấp thông tin Email.');
+  }
+  if (!emailVerified) {
+    throw new Error('UNVERIFIED_EMAIL: Email tài khoản Google chưa được xác minh.');
+  }
+
+  return {
+    sub: String(payload.sub),
+    email: String(payload.email).trim().toLowerCase(),
+    name: String(payload.name || payload.email.split('@')[0]),
+    picture: String(payload.picture || ''),
+    emailVerified: true
+  };
 }
 
 function isValidAppsScriptUrl(url: string | null | undefined): boolean {
@@ -553,12 +539,8 @@ async function startServer() {
   // ============================================================
   // GOOGLE OAUTH & MULTI-ROLE CORE LOGIC
   // ============================================================
-  async function handleGoogleLoginCore(
-    credential: string,
-    role: 'teacher' | 'student',
-    userProfile?: { email?: string; name?: string; picture?: string; sub?: string }
-  ) {
-    const verified = await verifyGoogleCredential(credential, userProfile);
+  async function handleGoogleLoginCore(credential: string, role: 'teacher' | 'student') {
+    const verified = await verifyGoogleCredential(credential);
     const { sub, email, name, picture } = verified;
 
     if (role === 'teacher') {
@@ -709,74 +691,15 @@ async function startServer() {
     }
   }
 
-  // In-memory verification OTP store: email -> { code, expiresAt }
-  const verificationOtps = new Map<string, { code: string; expiresAt: number }>();
-
-  // Send / request Email verification OTP
-  app.post('/api/auth/send-verification-otp', (req, res) => {
-    const { email } = req.body;
-    const cleanEmail = String(email || '').trim().toLowerCase();
-
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      return res.status(400).json({ success: false, error: 'Email không hợp lệ.' });
-    }
-
-    if (cleanEmail.endsWith('@gmail.com') || cleanEmail.endsWith('@googlemail.com')) {
-      return res.status(400).json({
-        success: false,
-        errorCode: 'GMAIL_AUTH_REQUIRED',
-        error: 'Địa chỉ @gmail.com là dịch vụ của Google. Vui lòng chọn "Tiếp tục với Google" để xác thực chính chủ tức thì và an toàn.'
-      });
-    }
-
-    const domain = cleanEmail.split('@')[1];
-    const disposableDomains = ['tempmail.com', 'temp-mail.org', '10minutemail.com', 'mailinator.com', 'guerrillamail.com', 'throwawaymail.com', 'yopmail.com', 'trashmail.com', 'fake.com', 'test.com', 'example.com', 'dispostable.com', 'getairmail.com', 'sharklasers.com', 'fakeinbox.com', 'maildrop.cc', 'inboxkitten.com'];
-    if (disposableDomains.includes(domain)) {
-      return res.status(400).json({
-        success: false,
-        errorCode: 'DISPOSABLE_EMAIL',
-        error: 'Địa chỉ email thuộc danh sách hòm thư tạm thời hoặc giả mạo. Vui lòng sử dụng địa chỉ email thật.'
-      });
-    }
-
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 mins
-    verificationOtps.set(cleanEmail, { code, expiresAt });
-
-    console.log(`[Email OTP] Verification code for ${cleanEmail}: ${code}`);
-    return res.json({
-      success: true,
-      message: 'Mã xác thực đã được cấp thành công.',
-      otpPreview: code
-    });
-  });
-
-  app.post('/api/auth/verify-otp', (req, res) => {
-    const { email, code } = req.body;
-    const cleanEmail = String(email || '').trim().toLowerCase();
-    const cleanCode = String(code || '').trim();
-
-    const record = verificationOtps.get(cleanEmail);
-    if (!record || record.expiresAt < Date.now()) {
-      return res.status(400).json({ success: false, error: 'Mã xác thực đã hết hạn hoặc không tồn tại. Vui lòng lấy mã mới.' });
-    }
-
-    if (record.code !== cleanCode) {
-      return res.status(400).json({ success: false, error: 'Mã xác thực không chính xác.' });
-    }
-
-    return res.json({ success: true, message: 'Xác thực email thành công.' });
-  });
-
   // Unified Google OAuth Endpoint: /api/auth/google
   app.post('/api/auth/google', async (req, res) => {
     try {
-      const { credential, role, userProfile } = req.body;
-      if (!credential && !userProfile) {
-        return res.status(400).json({ success: false, error: 'Thiếu thông tin xác thực Google.' });
+      const { credential, role } = req.body;
+      if (!credential) {
+        return res.status(400).json({ success: false, error: 'Thiếu thông tin Google ID Token (credential).' });
       }
       const targetRole = (role === 'student' || role === 'ROLE_STUDENT') ? 'student' : 'teacher';
-      const result = await handleGoogleLoginCore(credential || '', targetRole, userProfile);
+      const result = await handleGoogleLoginCore(credential, targetRole);
       return res.json({
         success: true,
         token: result.token,
@@ -795,11 +718,11 @@ async function startServer() {
   // Student Google OAuth Endpoint: /api/student-auth/google
   app.post('/api/student-auth/google', async (req, res) => {
     try {
-      const { credential, userProfile } = req.body;
-      if (!credential && !userProfile) {
-        return res.status(400).json({ success: false, error: 'Thiếu thông tin Google ID Token hoặc userProfile.' });
+      const { credential } = req.body;
+      if (!credential) {
+        return res.status(400).json({ success: false, error: 'Thiếu thông tin Google ID Token.' });
       }
-      const result = await handleGoogleLoginCore(credential || '', 'student', userProfile);
+      const result = await handleGoogleLoginCore(credential, 'student');
       return res.json({
         success: true,
         token: result.token,
@@ -819,11 +742,11 @@ async function startServer() {
   // Teacher Google OAuth Endpoint: /api/teacher-auth/google
   app.post('/api/teacher-auth/google', async (req, res) => {
     try {
-      const { credential, userProfile } = req.body;
-      if (!credential && !userProfile) {
-        return res.status(400).json({ success: false, error: 'Thiếu thông tin Google ID Token hoặc userProfile.' });
+      const { credential } = req.body;
+      if (!credential) {
+        return res.status(400).json({ success: false, error: 'Thiếu thông tin Google ID Token.' });
       }
-      const result = await handleGoogleLoginCore(credential || '', 'teacher', userProfile);
+      const result = await handleGoogleLoginCore(credential, 'teacher');
       return res.json({
         success: true,
         token: result.token,
@@ -891,40 +814,12 @@ async function startServer() {
   });
 
   app.post('/api/teacher-auth/register', (req, res) => {
-    const { fullName, email, password, schoolName, subject, title, otpCode } = req.body;
+    const { fullName, email, password, schoolName, subject, title } = req.body;
     const cleanEmail = String(email || '').trim().toLowerCase();
     const cleanName = String(fullName || '').trim();
 
     if (!cleanEmail || !cleanName) {
       return res.status(400).json({ success: false, error: 'Vui lòng điền họ tên và email.' });
-    }
-
-    // Anti-spoofing rule for Gmail: Gmail addresses MUST authenticate via Google Sign-In
-    if (cleanEmail.endsWith('@gmail.com') || cleanEmail.endsWith('@googlemail.com')) {
-      return res.status(400).json({
-        success: false,
-        errorCode: 'GMAIL_AUTH_REQUIRED',
-        error: 'Địa chỉ @gmail.com là dịch vụ của Google. Để bảo vệ tài khoản chính chủ và tránh tài khoản giả mạo, vui lòng đăng ký/đăng nhập bằng nút "Tiếp tục bằng tài khoản Google".'
-      });
-    }
-
-    // Block disposable email domains
-    const domain = cleanEmail.split('@')[1];
-    const disposableDomains = ['tempmail.com', 'temp-mail.org', '10minutemail.com', 'mailinator.com', 'guerrillamail.com', 'throwawaymail.com', 'yopmail.com', 'trashmail.com', 'fake.com', 'test.com', 'example.com', 'dispostable.com', 'getairmail.com', 'sharklasers.com', 'fakeinbox.com', 'maildrop.cc', 'inboxkitten.com'];
-    if (disposableDomains.includes(domain)) {
-      return res.status(400).json({
-        success: false,
-        errorCode: 'DISPOSABLE_EMAIL',
-        error: 'Địa chỉ email thuộc danh sách hòm thư tạm thời hoặc giả mạo. Vui lòng sử dụng địa chỉ email thật.'
-      });
-    }
-
-    // Verify OTP if provided
-    if (otpCode) {
-      const record = verificationOtps.get(cleanEmail);
-      if (record && record.code !== String(otpCode).trim()) {
-        return res.status(400).json({ success: false, error: 'Mã xác thực email không chính xác.' });
-      }
     }
 
     const existing = db.teachers.find(t => String(t.email || '').trim().toLowerCase() === cleanEmail);
@@ -1023,7 +918,7 @@ async function startServer() {
 
   // 1. Student Registration: /api/student-auth/register
   app.post('/api/student-auth/register', (req, res) => {
-    const { fullName, email, password, otpCode } = req.body;
+    const { fullName, email, password } = req.body;
     const cleanName = String(fullName || '').trim();
     const cleanEmail = String(email || '').trim().toLowerCase();
     const rawPass = String(password || '');
@@ -1035,43 +930,12 @@ async function startServer() {
       });
     }
 
-    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!cleanEmail || !emailRegex.test(cleanEmail) || cleanEmail.includes('..')) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!cleanEmail || !emailRegex.test(cleanEmail)) {
       return res.status(400).json({
         success: false,
         error: 'Vui lòng nhập địa chỉ Email hợp lệ.'
       });
-    }
-
-    // Anti-spoofing rule: Gmail accounts MUST authenticate via Google Sign-In
-    if (cleanEmail.endsWith('@gmail.com') || cleanEmail.endsWith('@googlemail.com')) {
-      return res.status(400).json({
-        success: false,
-        errorCode: 'GMAIL_AUTH_REQUIRED',
-        error: 'Địa chỉ @gmail.com là dịch vụ của Google. Để bảo vệ tài khoản chính chủ và tránh tài khoản giả mạo, vui lòng đăng ký/đăng nhập bằng nút "Tiếp tục với Google" bên dưới.'
-      });
-    }
-
-    // Block disposable email domains
-    const domain = cleanEmail.split('@')[1];
-    const disposableDomains = ['tempmail.com', 'temp-mail.org', '10minutemail.com', 'mailinator.com', 'guerrillamail.com', 'throwawaymail.com', 'yopmail.com', 'trashmail.com', 'fake.com', 'test.com', 'example.com', 'dispostable.com', 'getairmail.com', 'sharklasers.com', 'fakeinbox.com', 'maildrop.cc', 'inboxkitten.com'];
-    if (disposableDomains.includes(domain)) {
-      return res.status(400).json({
-        success: false,
-        errorCode: 'DISPOSABLE_EMAIL',
-        error: 'Địa chỉ email thuộc danh sách hòm thư tạm thời hoặc giả mạo. Vui lòng sử dụng địa chỉ email thật.'
-      });
-    }
-
-    // Verify OTP if provided
-    if (otpCode) {
-      const record = verificationOtps.get(cleanEmail);
-      if (record && record.code !== String(otpCode).trim()) {
-        return res.status(400).json({
-          success: false,
-          error: 'Mã xác thực email không chính xác.'
-        });
-      }
     }
 
     if (!rawPass || rawPass.length < 6) {
