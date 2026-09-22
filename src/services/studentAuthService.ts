@@ -66,7 +66,18 @@ export const studentAuthService = {
       const res = await fetch('/api/student-auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullName, email, password })
+        body: JSON.stringify({
+          fullName,
+          email,
+          password,
+          googleSub: dto.googleSub,
+          googleVerified: dto.googleVerified ?? true,
+          googleVerifiedAt: dto.googleVerifiedAt || new Date().toISOString(),
+          emailVerified: dto.emailVerified ?? true,
+          photoURL: dto.photoURL,
+          schoolName: dto.schoolName?.trim() || '',
+          grade: dto.grade?.trim() || ''
+        })
       });
 
       const contentType = res.headers.get('content-type') || '';
@@ -84,61 +95,17 @@ export const studentAuthService = {
         };
       }
 
-      this.setToken(data.token);
-      const studentSession: StudentSession = {
-        token: data.token,
-        studentId: data.student.id,
-        fullName: data.student.fullName,
-        email: data.student.email,
-        avatarUrl: data.student.avatarUrl,
-        joinedAt: data.student.createdAt
-      };
-      this.setLocalSession(studentSession);
-
+      // NOTE: Requirement 5 states no auto-login. The student must explicitly log in afterwards.
       return {
         success: true,
-        student: data.student,
-        token: data.token
+        student: data.student
       };
     } catch (netErr: any) {
-      // 2. Try Apps Script fallback via apiClient if configured
-      if (apiClient.isAppsScriptConfigured()) {
-        try {
-          const gasRes = await apiClient.post<{
-            success: boolean;
-            token: string;
-            student: Student;
-            errorCode?: string;
-            error?: string;
-          }>('studentAuth.register', { fullName, email, password });
-
-          if (gasRes.success && gasRes.token) {
-            this.setToken(gasRes.token);
-            const studentSession: StudentSession = {
-              token: gasRes.token,
-              studentId: gasRes.student.id,
-              fullName: gasRes.student.fullName,
-              email: gasRes.student.email,
-              avatarUrl: gasRes.student.avatarUrl,
-              joinedAt: gasRes.student.createdAt
-            };
-            this.setLocalSession(studentSession);
-            return { success: true, student: gasRes.student, token: gasRes.token };
-          }
-
-          if (gasRes.errorCode || gasRes.error) {
-            return {
-              success: false,
-              errorCode: gasRes.errorCode || 'REGISTER_FAILED',
-              error: mapErrorCodeToMessage(gasRes.errorCode, gasRes.error || 'Không thể đăng ký tài khoản.')
-            };
-          }
-        } catch (gasErr: any) {
-          console.warn('[studentAuthService] Apps Script register warning:', gasErr);
-        }
+      if (netErr.message && (netErr.message.includes('đã được đăng ký') || netErr.message.includes('đã được sử dụng'))) {
+        return { success: false, errorCode: 'EMAIL_EXISTS', error: netErr.message };
       }
 
-      // 3. Resilient Cloud Firestore fallback (for Vercel static SPA / cloud persistence)
+      // 2. Resilient Cloud Firestore fallback (for Vercel static SPA / cloud persistence)
       try {
         await ensureFirebaseAuth();
         const cleanEmail = email.toLowerCase().trim();
@@ -148,42 +115,37 @@ export const studentAuthService = {
           return {
             success: false,
             errorCode: 'EMAIL_ALREADY_EXISTS',
-            error: 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc chọn email khác.'
+            error: 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc sử dụng email khác.'
           };
         }
 
-        const studentId = `std_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const studentId = `student_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         const now = new Date().toISOString();
         const newStudent: Student = {
           id: studentId,
+          role: 'student',
           fullName,
           email: cleanEmail,
           password,
-          avatarUrl: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
-          authProvider: 'local',
+          googleSub: dto.googleSub,
+          googleVerified: true,
+          googleVerifiedAt: dto.googleVerifiedAt || now,
+          emailVerified: true,
+          photoURL: dto.photoURL,
+          avatarUrl: dto.photoURL || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
+          schoolName: dto.schoolName?.trim() || '',
+          grade: dto.grade?.trim() || '',
+          authProvider: 'local_google',
           status: 'active',
           createdAt: now,
-          joinedAt: now
+          updatedAt: now
         };
 
         await setDoc(doc(db, 'students', studentId), newStudent);
 
-        const token = `sblms_std_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-        this.setToken(token);
-        const studentSession: StudentSession = {
-          token,
-          studentId: newStudent.id,
-          fullName: newStudent.fullName,
-          email: newStudent.email,
-          avatarUrl: newStudent.avatarUrl,
-          joinedAt: newStudent.createdAt
-        };
-        this.setLocalSession(studentSession);
-
         return {
           success: true,
-          student: newStudent,
-          token
+          student: newStudent
         };
       } catch (fsErr: any) {
         console.error('[studentAuthService] Firestore register fallback error:', fsErr);

@@ -214,13 +214,21 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isMobileSidebar
                     </button>
                   </div>
                 ) : (
-                  <Link
-                    to="/admin/login"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-xs font-bold transition shadow-2xs"
-                  >
-                    <UserCheck className="w-3.5 h-3.5" />
-                    <span>Đăng nhập</span>
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to="/admin/login"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-xs font-bold transition shadow-2xs"
+                    >
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>Đăng nhập</span>
+                    </Link>
+                    <Link
+                      to="/admin/login?tab=register"
+                      className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-300 text-blue-700 hover:bg-blue-50 text-xs font-bold transition shadow-2xs"
+                    >
+                      <span>Tạo tài khoản</span>
+                    </Link>
+                  </div>
                 )
               ) : (
                 studentSession ? (

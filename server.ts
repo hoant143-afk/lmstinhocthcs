@@ -715,6 +715,71 @@ async function startServer() {
     }
   });
 
+  // Google Verification Endpoint (Verification Only, NO LOGIN/SESSION)
+  app.post('/api/auth/verify-google-token', async (req, res) => {
+    try {
+      const { credential } = req.body;
+      if (!credential) {
+        return res.status(400).json({ success: false, error: 'Thiếu thông tin Google ID Token.' });
+      }
+
+      const verified = await verifyGoogleCredential(credential);
+      const { sub, email, name, picture, emailVerified } = verified;
+
+      if (!emailVerified) {
+        return res.status(400).json({
+          success: false,
+          error: 'Email tài khoản Google chưa được xác minh bởi Google.'
+        });
+      }
+
+      const cleanEmail = email.toLowerCase().trim();
+
+      // Check if email already exists in teacher or student database
+      const existingTeacher = db.teachers.find(t => String(t.email || '').trim().toLowerCase() === cleanEmail);
+      const existingStudent = db.students.find(s => String(s.email || '').trim().toLowerCase() === cleanEmail);
+
+      if (existingTeacher || existingStudent) {
+        return res.status(409).json({
+          success: false,
+          errorCode: 'EMAIL_ALREADY_EXISTS',
+          error: 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc sử dụng email khác.'
+        });
+      }
+
+      // Check if googleSub is already linked to another account
+      const linkedTeacher = db.teachers.find(t => (t as any).googleSub && (t as any).googleSub === sub);
+      const linkedStudent = db.students.find(s => (s as any).googleSub && (s as any).googleSub === sub);
+
+      if (linkedTeacher || linkedStudent) {
+        return res.status(409).json({
+          success: false,
+          errorCode: 'GOOGLE_ACCOUNT_ALREADY_LINKED',
+          error: 'Tài khoản Google này đã được sử dụng.'
+        });
+      }
+
+      return res.json({
+        success: true,
+        verified: true,
+        googleUser: {
+          sub,
+          email: cleanEmail,
+          name,
+          picture,
+          emailVerified: true
+        }
+      });
+    } catch (err: any) {
+      console.error('[Google Verify Token Error]:', err.message);
+      return res.status(400).json({
+        success: false,
+        errorCode: 'GOOGLE_VERIFY_FAILED',
+        error: err.message || 'Xác thực tài khoản Google thất bại.'
+      });
+    }
+  });
+
   // Student Google OAuth Endpoint: /api/student-auth/google
   app.post('/api/student-auth/google', async (req, res) => {
     try {
@@ -814,60 +879,87 @@ async function startServer() {
   });
 
   app.post('/api/teacher-auth/register', (req, res) => {
-    const { fullName, email, password, schoolName, subject, title } = req.body;
+    const { fullName, email, password, googleSub, googleVerified, googleVerifiedAt, photoURL, schoolName, subject, title } = req.body;
     const cleanEmail = String(email || '').trim().toLowerCase();
     const cleanName = String(fullName || '').trim();
+    const rawPass = String(password || '');
 
     if (!cleanEmail || !cleanName) {
       return res.status(400).json({ success: false, error: 'Vui lòng điền họ tên và email.' });
     }
 
-    const existing = db.teachers.find(t => String(t.email || '').trim().toLowerCase() === cleanEmail);
-    if (existing) {
-      return res.status(400).json({ success: false, error: 'Email này đã được đăng ký tài khoản giáo viên.' });
+    if (!rawPass || rawPass.length < 6) {
+      return res.status(400).json({ success: false, error: 'Mật khẩu phải có độ dài từ 6 ký tự trở lên.' });
     }
 
-    let passwordHash = '';
-    if (password) {
-      const { hash, salt } = hashPassword(String(password));
-      passwordHash = `${hash}:${salt}`;
+    if (googleVerified !== true) {
+      return res.status(400).json({ success: false, error: 'Vui lòng xác minh tài khoản Google trước khi tạo tài khoản.' });
     }
+
+    // Check duplicate email across both teachers and students
+    const existingTeacher = db.teachers.find(t => String(t.email || '').trim().toLowerCase() === cleanEmail);
+    const existingStudent = db.students.find(s => String(s.email || '').trim().toLowerCase() === cleanEmail);
+    if (existingTeacher || existingStudent) {
+      return res.status(409).json({
+        success: false,
+        errorCode: 'EMAIL_ALREADY_EXISTS',
+        error: 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc sử dụng email khác.'
+      });
+    }
+
+    // Check duplicate googleSub
+    if (googleSub) {
+      const linkedTeacher = db.teachers.find(t => (t as any).googleSub === googleSub);
+      const linkedStudent = db.students.find(s => (s as any).googleSub === googleSub);
+      if (linkedTeacher || linkedStudent) {
+        return res.status(409).json({
+          success: false,
+          errorCode: 'GOOGLE_ACCOUNT_ALREADY_LINKED',
+          error: 'Tài khoản Google này đã được sử dụng.'
+        });
+      }
+    }
+
+    const { hash, salt } = hashPassword(rawPass);
+    const passwordHash = `${hash}:${salt}`;
 
     const teacherId = `teacher_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const now = new Date().toISOString();
     const newTeacher: Teacher = {
       id: teacherId,
+      role: 'teacher',
       fullName: cleanName,
       email: cleanEmail,
-      password: passwordHash || password,
+      password: passwordHash,
+      passwordHash,
+      googleSub: googleSub || '',
+      googleVerified: true,
+      googleVerifiedAt: googleVerifiedAt || now,
+      emailVerified: true,
+      photoURL: photoURL || '',
+      avatarUrl: photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
       schoolName: schoolName || 'Trường THPT & THCS',
       subject: subject || 'Bộ môn',
       title: title || 'Giáo viên',
-      authProvider: 'local',
-      createdAt: new Date().toISOString()
+      status: 'active',
+      authProvider: 'local_google',
+      createdAt: now,
+      updatedAt: now
     };
     db.teachers.push(newTeacher);
-    db.currentTeacherId = teacherId;
-
-    // Create session
-    const token = `sblms_tch_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-    const newSession: SessionEntity = {
-      id: `sess_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      token,
-      actorType: 'teacher',
-      actorId: teacherId,
-      expiresAt,
-      createdAt: new Date().toISOString(),
-      lastUsedAt: new Date().toISOString(),
-      status: 'active'
-    };
-    db.sessions.push(newSession);
     saveDatabaseToDisk();
 
+    // No auto-login as per Requirement 5: User must explicitly log in
     return res.status(201).json({
       success: true,
-      token,
-      teacher: newTeacher
+      message: 'Tài khoản giáo viên đã được tạo. Vui lòng đăng nhập để tạo và quản lý lớp học.',
+      teacher: {
+        id: newTeacher.id,
+        role: 'teacher',
+        fullName: newTeacher.fullName,
+        email: newTeacher.email,
+        avatarUrl: newTeacher.avatarUrl
+      }
     });
   });
 
@@ -918,7 +1010,7 @@ async function startServer() {
 
   // 1. Student Registration: /api/student-auth/register
   app.post('/api/student-auth/register', (req, res) => {
-    const { fullName, email, password } = req.body;
+    const { fullName, email, password, googleSub, googleVerified, googleVerifiedAt, photoURL, schoolName, grade } = req.body;
     const cleanName = String(fullName || '').trim();
     const cleanEmail = String(email || '').trim().toLowerCase();
     const rawPass = String(password || '');
@@ -945,14 +1037,35 @@ async function startServer() {
       });
     }
 
-    // Check email uniqueness
-    const existing = db.students.find(s => String(s.email || '').trim().toLowerCase() === cleanEmail);
-    if (existing) {
+    if (googleVerified !== true) {
       return res.status(400).json({
         success: false,
-        errorCode: 'EMAIL_EXISTS',
-        error: 'Email này đã được đăng ký.'
+        error: 'Vui lòng xác minh tài khoản Google trước khi tạo tài khoản.'
       });
+    }
+
+    // Check duplicate email across both students and teachers
+    const existingStudent = db.students.find(s => String(s.email || '').trim().toLowerCase() === cleanEmail);
+    const existingTeacher = db.teachers.find(t => String(t.email || '').trim().toLowerCase() === cleanEmail);
+    if (existingStudent || existingTeacher) {
+      return res.status(409).json({
+        success: false,
+        errorCode: 'EMAIL_ALREADY_EXISTS',
+        error: 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc sử dụng email khác.'
+      });
+    }
+
+    // Check duplicate googleSub across both students and teachers
+    if (googleSub) {
+      const linkedStudent = db.students.find(s => (s as any).googleSub === googleSub);
+      const linkedTeacher = db.teachers.find(t => (t as any).googleSub === googleSub);
+      if (linkedStudent || linkedTeacher) {
+        return res.status(409).json({
+          success: false,
+          errorCode: 'GOOGLE_ACCOUNT_ALREADY_LINKED',
+          error: 'Tài khoản Google này đã được sử dụng.'
+        });
+      }
     }
 
     // Hash password securely with salt
@@ -964,43 +1077,37 @@ async function startServer() {
 
     const newStudent: Student = {
       id: studentId,
+      role: 'student',
       fullName: cleanName,
       email: cleanEmail,
+      password: passwordHash,
       passwordHash,
+      googleSub: googleSub || '',
+      googleVerified: true,
+      googleVerifiedAt: googleVerifiedAt || now,
+      emailVerified: true,
+      photoURL: photoURL || '',
+      avatarUrl: photoURL || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
+      schoolName: schoolName?.trim() || '',
+      grade: grade?.trim() || '',
       status: 'active',
-      emailVerified: false,
+      authProvider: 'local_google',
       createdAt: now,
-      updatedAt: now,
-      lastLoginAt: now
+      updatedAt: now
     };
 
     db.students.push(newStudent);
-
-    // Create session token (actorType: 'student', actorId: studentId)
-    const token = `sblms_std_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
-
-    const session: StudentSessionEntity = {
-      id: `sess_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-      token,
-      actorType: 'student',
-      actorId: newStudent.id,
-      expiresAt,
-      createdAt: now,
-      lastUsedAt: now,
-      status: 'active'
-    };
-
-    db.sessions.push(session);
     saveDatabaseToDisk();
 
     console.log(`[Student Registered] ${cleanName} (${cleanEmail}) created with studentId=${newStudent.id}`);
 
+    // No auto-login as per Requirement 5: User must explicitly log in
     return res.status(201).json({
       success: true,
-      token,
+      message: 'Tài khoản học sinh đã được tạo. Vui lòng đăng nhập để tham gia lớp học.',
       student: {
         id: newStudent.id,
+        role: 'student',
         fullName: newStudent.fullName,
         email: newStudent.email,
         avatarUrl: newStudent.avatarUrl,

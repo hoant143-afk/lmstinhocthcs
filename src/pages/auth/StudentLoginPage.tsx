@@ -23,7 +23,7 @@ export const StudentLoginPage: React.FC = () => {
   const { loginStudent, loginStudentWithGoogle, isAuthenticatedStudent } = useAuth();
   const { toastSuccess, toastError } = useToast();
 
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState((location.state as any)?.prefillEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');

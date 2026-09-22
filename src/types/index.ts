@@ -5,16 +5,24 @@ export type AuthProviderType = 'local' | 'google' | 'local_google';
 
 export interface Teacher {
   id: string;
+  role?: 'teacher';
   fullName: string;
   email: string;
   password?: string;
+  passwordHash?: string;
   avatarUrl?: string;
   title?: string;
   schoolName?: string;
   subject?: string;
-  createdAt?: string;
   googleSub?: string;
+  googleVerified?: boolean;
+  googleVerifiedAt?: string;
+  emailVerified?: boolean;
+  photoURL?: string;
+  status?: 'active' | 'inactive';
   authProvider?: AuthProviderType;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface TeacherLoginDto {
@@ -31,6 +39,10 @@ export interface TeacherRegisterDto {
   title?: string;
   avatarUrl?: string;
   googleSub?: string;
+  googleVerified?: boolean;
+  googleVerifiedAt?: string;
+  emailVerified?: boolean;
+  photoURL?: string;
   authProvider?: AuthProviderType;
 }
 
@@ -78,17 +90,23 @@ export interface ClassEntity {
 
 export interface Student {
   id: string;
+  role?: 'student';
   fullName: string;
   email: string;
   password?: string;
   passwordHash?: string;
   avatarUrl?: string;
+  photoURL?: string;
+  schoolName?: string;
+  grade?: string;
   status: 'active' | 'inactive';
+  googleSub?: string;
+  googleVerified?: boolean;
+  googleVerifiedAt?: string;
   emailVerified?: boolean;
   createdAt: string;
   updatedAt?: string;
   lastLoginAt?: string;
-  googleSub?: string;
   authProvider?: AuthProviderType;
   // Legacy / backwards compatibility fields
   classId?: string;
@@ -129,7 +147,14 @@ export interface StudentSession {
 export interface StudentRegisterDto {
   fullName: string;
   email: string;
-  password: string;
+  password?: string;
+  googleSub?: string;
+  googleVerified?: boolean;
+  googleVerifiedAt?: string;
+  emailVerified?: boolean;
+  photoURL?: string;
+  schoolName?: string;
+  grade?: string;
 }
 
 export interface StudentLoginDto {
