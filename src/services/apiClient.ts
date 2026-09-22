@@ -369,7 +369,7 @@ export const apiClient = {
           errorMessage: `HTTP error! status: ${response.status}`,
           responseSnippet: snippet
         });
-        if (action === 'students.join' || process.env.NODE_ENV !== 'production') {
+        if (action === 'students.join' || import.meta.env.DEV) {
           console.log('[apiClient:Instrument]', {
             action,
             targetHost: new URL(url).host,
@@ -404,7 +404,7 @@ export const apiClient = {
           errorMessage: 'Phản hồi từ máy chủ không phải là JSON hợp lệ.',
           responseSnippet: snippet
         });
-        if (action === 'students.join' || process.env.NODE_ENV !== 'production') {
+        if (action === 'students.join' || import.meta.env.DEV) {
           console.log('[apiClient:Instrument]', {
             action,
             targetHost: new URL(url).host,
@@ -454,7 +454,7 @@ export const apiClient = {
           responseSnippet: snippet
         });
 
-        if (action === 'students.join' || process.env.NODE_ENV !== 'production') {
+        if (action === 'students.join' || import.meta.env.DEV) {
           console.log('[apiClient:Instrument]', {
             action,
             targetHost: new URL(url).host,
@@ -487,7 +487,7 @@ export const apiClient = {
         responseSnippet: snippet
       });
 
-      if (action === 'students.join' || process.env.NODE_ENV !== 'production') {
+      if (action === 'students.join' || import.meta.env.DEV) {
         console.log('[apiClient:Instrument]', {
           action,
           targetHost: new URL(url).host,
@@ -521,7 +521,7 @@ export const apiClient = {
         responseSnippet: err.message
       });
 
-      if (action === 'students.join' || process.env.NODE_ENV !== 'production') {
+      if (action === 'students.join' || import.meta.env.DEV) {
         console.log('[apiClient:Instrument]', {
           action,
           targetHost: url ? (function() { try { return new URL(url).host; } catch { return 'unknown'; } })() : 'none',
