@@ -104,14 +104,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      // 3. Load teacher from storage/API only if authenticated
-      const teacherToken = authService.getTeacherToken();
-      if (teacherToken) {
-        const currentTeacher = await authService.getCurrentTeacher();
-        setTeacher(currentTeacher);
-      } else {
-        setTeacher(null);
-      }
+      // 3. Load teacher from storage/API
+      const currentTeacher = await teacherRepo.getCurrentTeacher();
+      setTeacher(currentTeacher);
     } catch (err) {
       console.error('Error initializing Auth:', err);
     } finally {

@@ -1,8 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { studentAuthService } from '../../services/studentAuthService';
 import { GoogleSignInButton } from '../../components/auth/GoogleSignInButton';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -21,7 +20,7 @@ import {
 export const StudentLoginPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { loginStudent, loginStudentWithGoogle, isAuthenticatedStudent, isLoading } = useAuth();
+  const { loginStudent, loginStudentWithGoogle, isAuthenticatedStudent } = useAuth();
   const { toastSuccess, toastError } = useToast();
 
   const [email, setEmail] = useState('');
@@ -36,26 +35,6 @@ export const StudentLoginPage: React.FC = () => {
       navigate('/app', { replace: true });
     }
   }, [isAuthenticatedStudent, navigate]);
-
-  const handleGoogleSuccess = useCallback(async (credential: string) => {
-    try {
-      await loginStudentWithGoogle(credential);
-      toastSuccess('Đăng nhập tài khoản Google thành công!');
-      const from = (location.state as any)?.from?.pathname || '/app';
-      navigate(from, { replace: true });
-    } catch (err: any) {
-      toastError(err?.message || 'Đăng nhập Google thất bại.');
-    }
-  }, [loginStudentWithGoogle, location.state, navigate, toastSuccess, toastError]);
-
-  if (isLoading && studentAuthService.getToken()) {
-    return (
-      <div className="min-h-[70vh] flex flex-col items-center justify-center space-y-3">
-        <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
-        <p className="text-sm font-medium text-slate-500">Đang xác thực phiên học sinh...</p>
-      </div>
-    );
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,7 +90,16 @@ export const StudentLoginPage: React.FC = () => {
               <GoogleSignInButton
                 role="student"
                 buttonText="Tiếp tục với Google"
-                onSuccess={handleGoogleSuccess}
+                onSuccess={async (credential) => {
+                  try {
+                    await loginStudentWithGoogle(credential);
+                    toastSuccess('Đăng nhập tài khoản Google thành công!');
+                    const from = (location.state as any)?.from?.pathname || '/app';
+                    navigate(from, { replace: true });
+                  } catch (err: any) {
+                    toastError(err?.message || 'Đăng nhập Google thất bại.');
+                  }
+                }}
               />
             </div>
 

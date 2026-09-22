@@ -11,20 +11,16 @@ export const Layout: React.FC = () => {
   const location = useLocation();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
 
-  // Check if current route is admin, student app, landing, or auth flow
+  // Check if current route is admin or app
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isStudentRoute = location.pathname.startsWith('/app');
   const isLanding = location.pathname === '/';
-  const isAuthRoute =
-    location.pathname === '/admin/login' ||
-    location.pathname === '/app/login' ||
-    location.pathname === '/app/register';
 
-  if (isLanding || isAuthRoute) {
+  if (isLanding) {
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col antialiased">
+      <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
         <Navbar />
-        <main className="flex-1 flex flex-col items-center justify-center">
+        <main className="flex-1">
           <Outlet />
         </main>
       </div>

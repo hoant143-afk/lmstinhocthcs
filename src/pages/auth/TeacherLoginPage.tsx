@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -15,12 +15,11 @@ import {
   EyeOff,
   ShieldCheck,
   GraduationCap,
-  HelpCircle,
-  Loader2
+  HelpCircle
 } from 'lucide-react';
 
 export const TeacherLoginPage: React.FC = () => {
-  const { teacher, loginTeacher, registerTeacher, loginTeacherWithGoogle, isLoading: isAuthLoading } = useAuth();
+  const { teacher, loginTeacher, registerTeacher, loginTeacherWithGoogle } = useAuth();
   const { toastSuccess, toastError, toastInfo } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -49,26 +48,7 @@ export const TeacherLoginPage: React.FC = () => {
     if (teacher) {
       navigate(redirectPath, { replace: true });
     }
-  }, [teacher, redirectPath, navigate]);
-
-  const handleGoogleSuccess = useCallback(async (credential: string) => {
-    try {
-      const logged = await loginTeacherWithGoogle(credential);
-      toastSuccess(`Chào mừng Thầy/Cô ${logged.fullName} đã xác thực Google thành công!`);
-      navigate(redirectPath, { replace: true });
-    } catch (err: any) {
-      toastError(err?.message || 'Đăng nhập bằng Google thất bại.');
-    }
-  }, [loginTeacherWithGoogle, redirectPath, toastSuccess, toastError, navigate]);
-
-  if (isAuthLoading && localStorage.getItem('sblms_teacher_token')) {
-    return (
-      <div className="min-h-[70vh] flex flex-col items-center justify-center space-y-3">
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-        <p className="text-sm font-medium text-slate-500">Đang xác thực phiên làm việc Giáo viên...</p>
-      </div>
-    );
-  }
+  }, [teacher]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -191,7 +171,15 @@ export const TeacherLoginPage: React.FC = () => {
                 <GoogleSignInButton
                   role="teacher"
                   buttonText="Đăng nhập bằng Google"
-                  onSuccess={handleGoogleSuccess}
+                  onSuccess={async (credential) => {
+                    try {
+                      const logged = await loginTeacherWithGoogle(credential);
+                      toastSuccess(`Chào mừng Thầy/Cô ${logged.fullName} đã đăng nhập thành công bằng Google!`);
+                      navigate(redirectPath, { replace: true });
+                    } catch (err: any) {
+                      toastError(err?.message || 'Đăng nhập bằng Google thất bại.');
+                    }
+                  }}
                 />
               </div>
 
@@ -293,7 +281,15 @@ export const TeacherLoginPage: React.FC = () => {
                 <GoogleSignInButton
                   role="teacher"
                   buttonText="Tiếp tục bằng tài khoản Google"
-                  onSuccess={handleGoogleSuccess}
+                  onSuccess={async (credential) => {
+                    try {
+                      const logged = await loginTeacherWithGoogle(credential);
+                      toastSuccess(`Chúc mừng Thầy/Cô ${logged.fullName} đã kết nối Google thành công!`);
+                      navigate(redirectPath, { replace: true });
+                    } catch (err: any) {
+                      toastError(err?.message || 'Đăng ký bằng Google thất bại.');
+                    }
+                  }}
                 />
               </div>
 

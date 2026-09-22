@@ -54,15 +54,6 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
 
   const { toastSuccess, toastError, toastInfo } = useToast();
 
-  // Stable refs to prevent re-initializing Google GIS on every parent keystroke
-  const onSuccessRef = useRef(onSuccess);
-  onSuccessRef.current = onSuccess;
-  const onErrorRef = useRef(onError);
-  onErrorRef.current = onError;
-  const toastErrorRef = useRef(toastError);
-  toastErrorRef.current = toastError;
-  const renderedConfigRef = useRef<string>('');
-
   const label = buttonText || (role === 'teacher' ? 'Đăng nhập bằng Google' : 'Tiếp tục với Google');
 
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -133,15 +124,9 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
     };
   }, []);
 
-  // 4. Render Google Sign-In button using GIS SDK (Stable: runs only once per clientId/role change)
+  // 4. Render Google Sign-In button using GIS SDK
   useEffect(() => {
     if (!isGsiReady || !clientId || !containerRef.current) {
-      return;
-    }
-
-    const currentKey = `${clientId}_${role}`;
-    // If already rendered with child elements inside, avoid wiping container
-    if (renderedConfigRef.current === currentKey && containerRef.current.children.length > 0) {
       return;
     }
 
@@ -151,19 +136,19 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
         callback: async (response: { credential?: string }) => {
           if (!response || !response.credential) {
             const err = 'Không nhận được mã xác thực (credential) từ Google.';
-            onErrorRef.current?.(err);
-            toastErrorRef.current(err);
+            onError?.(err);
+            toastError(err);
             return;
           }
 
           setIsLoading(true);
           try {
-            await onSuccessRef.current(response.credential);
+            await onSuccess(response.credential);
           } catch (err: any) {
             console.error('[Google Sign-In Callback Error]:', err);
             const msg = err.message || 'Xác thực tài khoản Google thất bại.';
-            onErrorRef.current?.(msg);
-            toastErrorRef.current(msg);
+            onError?.(msg);
+            toastError(msg);
           } finally {
             setIsLoading(false);
           }
@@ -188,12 +173,10 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
         width: targetWidth,
         locale: 'vi'
       });
-
-      renderedConfigRef.current = currentKey;
     } catch (err) {
       console.error('[Google Button Render Error]:', err);
     }
-  }, [isGsiReady, clientId, role]);
+  }, [isGsiReady, clientId, role, onSuccess, onError, toastError]);
 
   const handleManualClick = () => {
     if (!clientId) {
@@ -249,16 +232,9 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
         <div className="w-full flex flex-col items-center">
           <div
             ref={containerRef}
-            className="w-full flex justify-center items-center h-[44px] min-h-[44px]"
+            className="w-full flex justify-center min-h-[44px]"
             id="google-signin-btn-container"
-          >
-            {!isGsiReady && (
-              <div className="w-full max-w-[340px] h-[40px] rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center gap-2 text-slate-400 text-xs">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
-                <span>Đang nạp Google Sign-In...</span>
-              </div>
-            )}
-          </div>
+          />
           {isLoading && (
             <div className="flex items-center gap-2 mt-2 text-xs text-slate-500 font-medium">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />

@@ -1,8 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { studentAuthService } from '../../services/studentAuthService';
 import { GoogleSignInButton } from '../../components/auth/GoogleSignInButton';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -21,7 +20,7 @@ import {
 
 export const StudentRegisterPage: React.FC = () => {
   const navigate = useNavigate();
-  const { registerStudent, loginStudentWithGoogle, isAuthenticatedStudent, isLoading } = useAuth();
+  const { registerStudent, loginStudentWithGoogle, isAuthenticatedStudent } = useAuth();
   const { toastSuccess, toastError } = useToast();
 
   const [fullName, setFullName] = useState('');
@@ -38,25 +37,6 @@ export const StudentRegisterPage: React.FC = () => {
       navigate('/app', { replace: true });
     }
   }, [isAuthenticatedStudent, navigate]);
-
-  const handleGoogleSuccess = useCallback(async (credential: string) => {
-    try {
-      await loginStudentWithGoogle(credential);
-      toastSuccess('Đăng ký / Đăng nhập tài khoản Google thành công!');
-      navigate('/app', { replace: true });
-    } catch (err: any) {
-      toastError(err?.message || 'Đăng ký bằng Google thất bại.');
-    }
-  }, [loginStudentWithGoogle, navigate, toastSuccess, toastError]);
-
-  if (isLoading && studentAuthService.getToken()) {
-    return (
-      <div className="min-h-[70vh] flex flex-col items-center justify-center space-y-3">
-        <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
-        <p className="text-sm font-medium text-slate-500">Đang xác thực phiên học sinh...</p>
-      </div>
-    );
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,7 +106,15 @@ export const StudentRegisterPage: React.FC = () => {
               <GoogleSignInButton
                 role="student"
                 buttonText="Tiếp tục với Google"
-                onSuccess={handleGoogleSuccess}
+                onSuccess={async (credential) => {
+                  try {
+                    await loginStudentWithGoogle(credential);
+                    toastSuccess('Đăng ký / Đăng nhập tài khoản Google thành công!');
+                    navigate('/app', { replace: true });
+                  } catch (err: any) {
+                    toastError(err?.message || 'Đăng ký bằng Google thất bại.');
+                  }
+                }}
               />
             </div>
 

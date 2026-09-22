@@ -36,10 +36,8 @@ export const authService = {
           }
         }
       } catch {}
-      // Clear expired or invalid token
-      this.setTeacherToken('');
     }
-    return null;
+    return teacherRepo.getCurrentTeacher();
   },
 
   async loginTeacher(dto: TeacherLoginDto): Promise<Teacher> {
