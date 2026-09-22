@@ -14,7 +14,8 @@ export const syncService = {
       // 1. Fetch server config (Apps Script URL, Data Provider)
       try {
         const configRes = await fetch('/api/config');
-        if (configRes.ok) {
+        const contentType = configRes.headers.get('content-type') || '';
+        if (configRes.ok && contentType.includes('application/json')) {
           const config = await configRes.json();
           if (config.appsScriptUrl && !apiClient.getAppsScriptUrl()) {
             apiClient.setAppsScriptUrl(config.appsScriptUrl);

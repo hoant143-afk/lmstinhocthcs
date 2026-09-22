@@ -162,7 +162,8 @@ export const apiClient = {
   async syncConfigFromServer(): Promise<string> {
     try {
       const res = await fetch('/api/config');
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const config = await res.json();
         if (config?.appsScriptUrl && this.isValidAppsScriptUrl(config.appsScriptUrl)) {
           const url = config.appsScriptUrl.trim();

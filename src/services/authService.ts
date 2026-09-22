@@ -29,7 +29,8 @@ export const authService = {
         const res = await fetch('/api/teacher-auth/verify-session', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
           const data = await res.json();
           if (data.success && data.teacher) {
             return data.teacher;
@@ -159,20 +160,23 @@ export const authService = {
         body: JSON.stringify({ credential })
       });
 
-      const data = await res.json();
-      if (res.ok && data.success) {
-        const teacher = data.teacher || data.data?.user;
-        const token = data.token || data.data?.token;
-        if (token) {
-          this.setTeacherToken(token);
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (res.ok && data.success) {
+          const teacher = data.teacher || data.data?.user;
+          const token = data.token || data.data?.token;
+          if (token) {
+            this.setTeacherToken(token);
+          }
+          await teacherRepo.setCurrentTeacher(teacher);
+          return teacher;
+        } else if (data.error) {
+          throw new Error(data.error);
         }
-        await teacherRepo.setCurrentTeacher(teacher);
-        return teacher;
-      } else if (data.error) {
-        throw new Error(data.error);
       }
     } catch (err: any) {
-      if (err.message && !err.message.includes('fetch')) {
+      if (err.message && !err.message.includes('fetch') && !err.message.includes('token') && !err.message.includes('JSON')) {
         throw err;
       }
     }

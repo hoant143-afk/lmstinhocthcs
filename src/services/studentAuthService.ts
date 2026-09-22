@@ -2,6 +2,8 @@ import { Student, StudentSession, StudentRegisterDto, StudentLoginDto, StudentAu
 import { apiClient, mapErrorCodeToMessage } from './apiClient';
 import { studentRepo } from '../repositories';
 import { decodeGoogleCredential } from '../utils/jwt';
+import { db, ensureFirebaseAuth } from '../lib/firebase';
+import { collection, doc, getDoc, getDocs, setDoc, query, where } from 'firebase/firestore';
 
 const STUDENT_TOKEN_KEY = 'sblms_student_token';
 const STUDENT_SESSION_KEY = 'sb_lms_student_session_v1';
@@ -67,6 +69,11 @@ export const studentAuthService = {
         body: JSON.stringify({ fullName, email, password })
       });
 
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error('SERVER_API_NOT_JSON');
+      }
+
       const data = await res.json();
       if (!res.ok || !data.success) {
         const errCode = data.errorCode || 'REGISTER_FAILED';
@@ -94,36 +101,92 @@ export const studentAuthService = {
         token: data.token
       };
     } catch (netErr: any) {
-      // Try Apps Script fallback via apiClient if configured
-      try {
-        const gasRes = await apiClient.post<{
-          success: boolean;
-          token: string;
-          student: Student;
-          errorCode?: string;
-          error?: string;
-        }>('studentAuth.register', { fullName, email, password });
+      // 2. Try Apps Script fallback via apiClient if configured
+      if (apiClient.isAppsScriptConfigured()) {
+        try {
+          const gasRes = await apiClient.post<{
+            success: boolean;
+            token: string;
+            student: Student;
+            errorCode?: string;
+            error?: string;
+          }>('studentAuth.register', { fullName, email, password });
 
-        if (gasRes.success && gasRes.token) {
-          this.setToken(gasRes.token);
-          const studentSession: StudentSession = {
-            token: gasRes.token,
-            studentId: gasRes.student.id,
-            fullName: gasRes.student.fullName,
-            email: gasRes.student.email,
-            avatarUrl: gasRes.student.avatarUrl,
-            joinedAt: gasRes.student.createdAt
+          if (gasRes.success && gasRes.token) {
+            this.setToken(gasRes.token);
+            const studentSession: StudentSession = {
+              token: gasRes.token,
+              studentId: gasRes.student.id,
+              fullName: gasRes.student.fullName,
+              email: gasRes.student.email,
+              avatarUrl: gasRes.student.avatarUrl,
+              joinedAt: gasRes.student.createdAt
+            };
+            this.setLocalSession(studentSession);
+            return { success: true, student: gasRes.student, token: gasRes.token };
+          }
+
+          if (gasRes.errorCode || gasRes.error) {
+            return {
+              success: false,
+              errorCode: gasRes.errorCode || 'REGISTER_FAILED',
+              error: mapErrorCodeToMessage(gasRes.errorCode, gasRes.error || 'Không thể đăng ký tài khoản.')
+            };
+          }
+        } catch (gasErr: any) {
+          console.warn('[studentAuthService] Apps Script register warning:', gasErr);
+        }
+      }
+
+      // 3. Resilient Cloud Firestore fallback (for Vercel static SPA / cloud persistence)
+      try {
+        await ensureFirebaseAuth();
+        const cleanEmail = email.toLowerCase().trim();
+        const q = query(collection(db, 'students'), where('email', '==', cleanEmail));
+        const qSnap = await getDocs(q);
+        if (!qSnap.empty) {
+          return {
+            success: false,
+            errorCode: 'EMAIL_ALREADY_EXISTS',
+            error: 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc chọn email khác.'
           };
-          this.setLocalSession(studentSession);
-          return { success: true, student: gasRes.student, token: gasRes.token };
         }
 
-        return {
-          success: false,
-          errorCode: gasRes.errorCode || 'REGISTER_FAILED',
-          error: mapErrorCodeToMessage(gasRes.errorCode, gasRes.error || 'Không thể đăng ký tài khoản.')
+        const studentId = `std_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const now = new Date().toISOString();
+        const newStudent: Student = {
+          id: studentId,
+          fullName,
+          email: cleanEmail,
+          password,
+          avatarUrl: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
+          authProvider: 'local',
+          status: 'active',
+          createdAt: now,
+          joinedAt: now
         };
-      } catch (err: any) {
+
+        await setDoc(doc(db, 'students', studentId), newStudent);
+
+        const token = `sblms_std_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        this.setToken(token);
+        const studentSession: StudentSession = {
+          token,
+          studentId: newStudent.id,
+          fullName: newStudent.fullName,
+          email: newStudent.email,
+          avatarUrl: newStudent.avatarUrl,
+          joinedAt: newStudent.createdAt
+        };
+        this.setLocalSession(studentSession);
+
+        return {
+          success: true,
+          student: newStudent,
+          token
+        };
+      } catch (fsErr: any) {
+        console.error('[studentAuthService] Firestore register fallback error:', fsErr);
         return {
           success: false,
           errorCode: 'NETWORK_ERROR',
@@ -152,11 +215,17 @@ export const studentAuthService = {
     }
 
     try {
+      // 1. Try local Express backend
       const res = await fetch('/api/student-auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       });
+
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error('SERVER_API_NOT_JSON');
+      }
 
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -185,42 +254,114 @@ export const studentAuthService = {
         token: data.token
       };
     } catch (netErr: any) {
-      // Apps Script fallback
-      try {
-        const gasRes = await apiClient.post<{
-          success: boolean;
-          token: string;
-          student: Student;
-          errorCode?: string;
-          error?: string;
-        }>('studentAuth.login', { email, password });
+      // 2. Apps Script fallback if configured
+      if (apiClient.isAppsScriptConfigured()) {
+        try {
+          const gasRes = await apiClient.post<{
+            success: boolean;
+            token: string;
+            student: Student;
+            errorCode?: string;
+            error?: string;
+          }>('studentAuth.login', { email, password });
 
-        if (gasRes.success && gasRes.token) {
-          this.setToken(gasRes.token);
+          if (gasRes.success && gasRes.token) {
+            this.setToken(gasRes.token);
+            const studentSession: StudentSession = {
+              token: gasRes.token,
+              studentId: gasRes.student.id,
+              fullName: gasRes.student.fullName,
+              email: gasRes.student.email,
+              avatarUrl: gasRes.student.avatarUrl,
+              joinedAt: gasRes.student.createdAt
+            };
+            this.setLocalSession(studentSession);
+            return { success: true, student: gasRes.student, token: gasRes.token };
+          }
+
+          if (gasRes.errorCode || gasRes.error) {
+            return {
+              success: false,
+              errorCode: gasRes.errorCode || 'INVALID_CREDENTIALS',
+              error: mapErrorCodeToMessage(gasRes.errorCode, gasRes.error || 'Email hoặc mật khẩu không chính xác.')
+            };
+          }
+        } catch (gasErr: any) {
+          console.warn('[studentAuthService] Apps Script login fallback warning:', gasErr);
+        }
+      }
+
+      // 3. Resilient Cloud Firestore fallback (for Vercel SPA without backend)
+      try {
+        await ensureFirebaseAuth();
+        const cleanEmail = email.toLowerCase().trim();
+        const q = query(collection(db, 'students'), where('email', '==', cleanEmail));
+        const qSnap = await getDocs(q);
+
+        if (!qSnap.empty) {
+          const studentDoc = qSnap.docs[0];
+          const student = { id: studentDoc.id, ...studentDoc.data() } as Student;
+
+          if (student.status && student.status !== 'active') {
+            return {
+              success: false,
+              errorCode: 'ACCOUNT_DISABLED',
+              error: 'Tài khoản học sinh hiện đang bị khóa. Vui lòng liên hệ Thầy/Cô.'
+            };
+          }
+
+          if (student.password && student.password !== password) {
+            return {
+              success: false,
+              errorCode: 'INVALID_CREDENTIALS',
+              error: 'Email hoặc mật khẩu không chính xác.'
+            };
+          }
+
+          const token = `sblms_std_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+          this.setToken(token);
           const studentSession: StudentSession = {
-            token: gasRes.token,
-            studentId: gasRes.student.id,
-            fullName: gasRes.student.fullName,
-            email: gasRes.student.email,
-            avatarUrl: gasRes.student.avatarUrl,
-            joinedAt: gasRes.student.createdAt
+            token,
+            studentId: student.id,
+            fullName: student.fullName,
+            email: student.email,
+            avatarUrl: student.avatarUrl,
+            joinedAt: student.joinedAt || student.createdAt || new Date().toISOString()
           };
           this.setLocalSession(studentSession);
-          return { success: true, student: gasRes.student, token: gasRes.token };
-        }
 
+          return {
+            success: true,
+            student,
+            token
+          };
+        }
+      } catch (fsErr: any) {
+        console.warn('[studentAuthService] Firestore student lookup warning:', fsErr);
+      }
+
+      // 4. Local storage session fallback
+      const local = this.getLocalSession();
+      if (local && local.email.toLowerCase() === email.toLowerCase()) {
         return {
-          success: false,
-          errorCode: gasRes.errorCode || 'INVALID_CREDENTIALS',
-          error: mapErrorCodeToMessage(gasRes.errorCode, gasRes.error || 'Email hoặc mật khẩu không chính xác.')
-        };
-      } catch (err: any) {
-        return {
-          success: false,
-          errorCode: 'NETWORK_ERROR',
-          error: 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra lại kết nối mạng.'
+          success: true,
+          student: {
+            id: local.studentId,
+            fullName: local.fullName,
+            email: local.email,
+            avatarUrl: local.avatarUrl,
+            status: 'active',
+            createdAt: local.joinedAt || new Date().toISOString()
+          },
+          token: local.token
         };
       }
+
+      return {
+        success: false,
+        errorCode: 'INVALID_CREDENTIALS',
+        error: 'Email hoặc mật khẩu không chính xác hoặc tài khoản chưa được đăng ký.'
+      };
     }
   },
 
@@ -247,57 +388,14 @@ export const studentAuthService = {
         body: JSON.stringify({ credential })
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        return {
-          success: false,
-          errorCode: data.errorCode || 'GOOGLE_AUTH_FAILED',
-          error: data.error || 'Đăng nhập Google không thành công.'
-        };
-      }
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (res.ok && data.success) {
+          const token = data.token || data.data?.token;
+          const student = data.student || data.data?.user;
 
-      const token = data.token || data.data?.token;
-      const student = data.student || data.data?.user;
-
-      if (!token || !student) {
-        return {
-          success: false,
-          errorCode: 'INVALID_RESPONSE',
-          error: 'Phản hồi từ máy chủ không hợp lệ.'
-        };
-      }
-
-      this.setToken(token);
-      const studentSession: StudentSession = {
-        token,
-        studentId: student.id,
-        fullName: student.fullName,
-        email: student.email,
-        avatarUrl: student.avatarUrl,
-        joinedAt: student.createdAt || new Date().toISOString()
-      };
-      this.setLocalSession(studentSession);
-
-      return {
-        success: true,
-        student,
-        token
-      };
-    } catch (netErr: any) {
-      // 2. Apps Script fallback if configured
-      if (apiClient.isAppsScriptConfigured()) {
-        try {
-          const gasRes = await apiClient.post<{
-            success: boolean;
-            token: string;
-            user?: Student;
-            student?: Student;
-            error?: string;
-          }>('auth.google', { credential, role: 'student' });
-
-          if (gasRes.success && (gasRes.token || (gasRes as any).data?.token)) {
-            const token = gasRes.token || (gasRes as any).data?.token;
-            const student = gasRes.student || gasRes.user || (gasRes as any).data?.user;
+          if (token && student) {
             this.setToken(token);
             const studentSession: StudentSession = {
               token,
@@ -308,50 +406,94 @@ export const studentAuthService = {
               joinedAt: student.createdAt || new Date().toISOString()
             };
             this.setLocalSession(studentSession);
-            return { success: true, student, token };
+
+            return {
+              success: true,
+              student,
+              token
+            };
           }
-        } catch (gasErr: any) {
-          console.warn('Apps Script student Google Auth fallback error:', gasErr);
         }
       }
+    } catch {
+      // ignore
+    }
 
-      // 3. Fallback for Static Hostings (e.g. Vercel SPA)
-      const payload = decodeGoogleCredential(credential);
-      if (payload && payload.email) {
-        const email = payload.email.toLowerCase().trim();
-        const studentId = `std_g_${payload.sub || Math.random().toString(36).slice(2, 10)}`;
-        const now = new Date().toISOString();
-        const student: Student = {
-          id: studentId,
-          fullName: payload.name || email.split('@')[0],
-          email,
-          avatarUrl: payload.picture || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-          authProvider: 'google',
-          status: 'active',
-          createdAt: now,
-          googleSub: payload.sub
-        };
+    // 2. Apps Script fallback if configured
+    if (apiClient.isAppsScriptConfigured()) {
+      try {
+        const gasRes = await apiClient.post<{
+          success: boolean;
+          token: string;
+          user?: Student;
+          student?: Student;
+          error?: string;
+        }>('auth.google', { credential, role: 'student' });
 
-        const token = `gtoken_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        this.setToken(token);
-        const studentSession: StudentSession = {
-          token,
-          studentId: student.id,
-          fullName: student.fullName,
-          email: student.email,
-          avatarUrl: student.avatarUrl,
-          joinedAt: student.createdAt
-        };
-        this.setLocalSession(studentSession);
-        return { success: true, student, token };
+        if (gasRes.success && (gasRes.token || (gasRes as any).data?.token)) {
+          const token = gasRes.token || (gasRes as any).data?.token;
+          const student = gasRes.student || gasRes.user || (gasRes as any).data?.user;
+          this.setToken(token);
+          const studentSession: StudentSession = {
+            token,
+            studentId: student.id,
+            fullName: student.fullName,
+            email: student.email,
+            avatarUrl: student.avatarUrl,
+            joinedAt: student.createdAt || new Date().toISOString()
+          };
+          this.setLocalSession(studentSession);
+          return { success: true, student, token };
+        }
+      } catch (gasErr: any) {
+        console.warn('Apps Script student Google Auth fallback error:', gasErr);
+      }
+    }
+
+    // 3. Fallback for Static Hostings (e.g. Vercel SPA)
+    const payload = decodeGoogleCredential(credential);
+    if (payload && payload.email) {
+      const email = payload.email.toLowerCase().trim();
+      const studentId = `std_g_${payload.sub || Math.random().toString(36).substring(2, 10)}`;
+      const now = new Date().toISOString();
+      const student: Student = {
+        id: studentId,
+        fullName: payload.name || email.split('@')[0],
+        email,
+        avatarUrl: payload.picture || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+        authProvider: 'google',
+        status: 'active',
+        createdAt: now,
+        googleSub: payload.sub
+      };
+
+      // Also persist to Cloud Firestore
+      try {
+        await ensureFirebaseAuth();
+        await setDoc(doc(db, 'students', studentId), student, { merge: true });
+      } catch (e) {
+        console.warn('[studentAuthService] Firestore Google student save warning:', e);
       }
 
-      return {
-        success: false,
-        errorCode: 'GOOGLE_AUTH_FAILED',
-        error: 'Không thể xác thực thông tin tài khoản Google. Vui lòng thử lại.'
+      const token = `gtoken_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      this.setToken(token);
+      const studentSession: StudentSession = {
+        token,
+        studentId: student.id,
+        fullName: student.fullName,
+        email: student.email,
+        avatarUrl: student.avatarUrl,
+        joinedAt: student.createdAt
       };
+      this.setLocalSession(studentSession);
+      return { success: true, student, token };
     }
+
+    return {
+      success: false,
+      errorCode: 'GOOGLE_AUTH_FAILED',
+      error: 'Không thể xác thực thông tin tài khoản Google. Vui lòng thử lại.'
+    };
   },
 
   async logout(): Promise<void> {
@@ -392,53 +534,84 @@ export const studentAuthService = {
         }
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        this.clearSession();
-        return {
-          success: false,
-          errorCode: data.errorCode || 'SESSION_EXPIRED',
-          error: mapErrorCodeToMessage(data.errorCode, data.error || 'Phiên đăng nhập đã hết hạn.')
-        };
-      }
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (res.ok && data.success && data.student) {
+          // Update cached session
+          const prev = this.getLocalSession();
+          if (prev) {
+            this.setLocalSession({
+              ...prev,
+              fullName: data.student.fullName,
+              email: data.student.email,
+              avatarUrl: data.student.avatarUrl
+            });
+          }
 
-      // Update cached session
-      const prev = this.getLocalSession();
-      if (prev) {
-        this.setLocalSession({
-          ...prev,
-          fullName: data.student.fullName,
-          email: data.student.email,
-          avatarUrl: data.student.avatarUrl
-        });
+          return {
+            success: true,
+            student: data.student
+          };
+        } else if (res.status === 401 || res.status === 403) {
+          this.clearSession();
+          return {
+            success: false,
+            errorCode: data.errorCode || 'SESSION_EXPIRED',
+            error: mapErrorCodeToMessage(data.errorCode, data.error || 'Phiên đăng nhập đã hết hạn.')
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // If offline or on static hosting (Vercel SPA), verify via local session & Firestore
+    const local = this.getLocalSession();
+    if (local && (local.token === token || token.startsWith('sblms_std_') || token.startsWith('gtoken_') || token.startsWith('std_'))) {
+      // Optionally sync fresh student doc from Cloud Firestore
+      if (local.studentId) {
+        try {
+          await ensureFirebaseAuth();
+          const sSnap = await getDoc(doc(db, 'students', local.studentId));
+          if (sSnap.exists()) {
+            const fsStudent = { id: sSnap.id, ...sSnap.data() } as Student;
+            if (fsStudent.status && fsStudent.status !== 'active') {
+              this.clearSession();
+              return {
+                success: false,
+                errorCode: 'ACCOUNT_DISABLED',
+                error: 'Tài khoản học sinh hiện đang bị khóa.'
+              };
+            }
+            return {
+              success: true,
+              student: fsStudent
+            };
+          }
+        } catch {
+          // continue with local data
+        }
       }
 
       return {
         success: true,
-        student: data.student
-      };
-    } catch {
-      // If offline, trust existing local session if token matches
-      const local = this.getLocalSession();
-      if (local && local.token === token) {
-        return {
-          success: true,
-          student: {
-            id: local.studentId,
-            fullName: local.fullName,
-            email: local.email,
-            avatarUrl: local.avatarUrl,
-            status: 'active',
-            createdAt: local.joinedAt || new Date().toISOString()
-          }
-        };
-      }
-      return {
-        success: false,
-        errorCode: 'NETWORK_ERROR',
-        error: 'Không thể xác thực phiên làm việc.'
+        student: {
+          id: local.studentId,
+          fullName: local.fullName,
+          email: local.email,
+          avatarUrl: local.avatarUrl,
+          status: 'active',
+          createdAt: local.joinedAt || new Date().toISOString()
+        }
       };
     }
+
+    return {
+      success: false,
+      errorCode: 'SESSION_EXPIRED',
+      error: 'Phiên đăng nhập đã hết hạn.'
+    };
   },
 
   async getMe(): Promise<{ success: boolean; student?: any; error?: string }> {
@@ -449,11 +622,30 @@ export const studentAuthService = {
       const res = await fetch('/api/student-auth/me', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const data = await res.json();
-      return data;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        return data;
+      }
     } catch (err: any) {
-      return { success: false, error: err.message || 'Lỗi tải thông tin học sinh' };
+      // ignore
     }
+
+    const local = this.getLocalSession();
+    if (local) {
+      return {
+        success: true,
+        student: {
+          id: local.studentId,
+          fullName: local.fullName,
+          email: local.email,
+          avatarUrl: local.avatarUrl,
+          status: 'active'
+        }
+      };
+    }
+
+    return { success: false, error: 'Không tìm thấy thông tin tài khoản' };
   },
 
   async updateProfile(params: {
@@ -474,24 +666,60 @@ export const studentAuthService = {
         },
         body: JSON.stringify(params)
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        return { success: false, error: data.error || 'Không thể cập nhật thông tin' };
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (res.ok && data.success) {
+          const prev = this.getLocalSession();
+          if (prev) {
+            this.setLocalSession({
+              ...prev,
+              fullName: data.student.fullName,
+              avatarUrl: data.student.avatarUrl
+            });
+          }
+          return { success: true, student: data.student };
+        } else if (data.error) {
+          return { success: false, error: data.error };
+        }
       }
-
-      // Update local session
-      const prev = this.getLocalSession();
-      if (prev) {
-        this.setLocalSession({
-          ...prev,
-          fullName: data.student.fullName,
-          avatarUrl: data.student.avatarUrl
-        });
-      }
-
-      return { success: true, student: data.student };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Lỗi cập nhật thông tin' };
+    } catch {
+      // ignore
     }
+
+    // Fallback: update local session & Cloud Firestore
+    const local = this.getLocalSession();
+    if (local && local.studentId) {
+      const updateData: any = {};
+      if (params.fullName) updateData.fullName = params.fullName;
+      if (params.avatarUrl) updateData.avatarUrl = params.avatarUrl;
+      if (params.newPassword) updateData.password = params.newPassword;
+
+      try {
+        await ensureFirebaseAuth();
+        await setDoc(doc(db, 'students', local.studentId), updateData, { merge: true });
+      } catch (err) {
+        console.warn('[studentAuthService] Firestore updateProfile warning:', err);
+      }
+
+      const updatedStudent: Student = {
+        id: local.studentId,
+        fullName: params.fullName || local.fullName,
+        email: local.email,
+        avatarUrl: params.avatarUrl || local.avatarUrl,
+        status: 'active',
+        createdAt: local.joinedAt || new Date().toISOString()
+      };
+
+      this.setLocalSession({
+        ...local,
+        fullName: updatedStudent.fullName,
+        avatarUrl: updatedStudent.avatarUrl
+      });
+
+      return { success: true, student: updatedStudent };
+    }
+
+    return { success: false, error: 'Không thể cập nhật thông tin' };
   }
 };

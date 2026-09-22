@@ -507,7 +507,8 @@ export const AdminSettingsPage: React.FC = () => {
     const loadServerConfig = async () => {
       try {
         const res = await fetch('/api/config');
-        if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
           const cfg = await res.json();
           if (cfg.googleClientId) {
             setGoogleClientId(cfg.googleClientId);

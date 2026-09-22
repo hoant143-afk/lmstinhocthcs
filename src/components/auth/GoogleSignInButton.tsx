@@ -77,7 +77,8 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
     const loadConfig = async () => {
       try {
         const res = await fetch('/api/config');
-        if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
           const data = await res.json();
           const serverId = (data.googleClientId || '').trim();
           if (serverId && !serverId.startsWith('182246867443') && isMounted && !envClientId) {

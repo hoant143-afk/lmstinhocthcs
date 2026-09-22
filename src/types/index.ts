@@ -80,6 +80,7 @@ export interface Student {
   id: string;
   fullName: string;
   email: string;
+  password?: string;
   passwordHash?: string;
   avatarUrl?: string;
   status: 'active' | 'inactive';
