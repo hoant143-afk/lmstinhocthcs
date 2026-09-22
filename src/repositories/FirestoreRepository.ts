@@ -3,14 +3,12 @@ import {
   doc,
   getDoc,
   getDocs,
-  setDoc,
-  updateDoc,
   deleteDoc,
   query,
   where,
   serverTimestamp
 } from 'firebase/firestore';
-import { db, ensureFirebaseAuth } from '../lib/firebase';
+import { db, ensureFirebaseAuth, safeSetDoc, safeUpdateDoc, sanitizeFirestoreData } from '../lib/firebase';
 import {
   Teacher,
   ClassEntity,
@@ -148,7 +146,7 @@ export class FirestoreTeacherRepository implements ITeacherRepository {
       id,
       createdAt: new Date().toISOString()
     };
-    await setDoc(doc(db, 'teachers', id), newTeacher);
+    await safeSetDoc(doc(db, 'teachers', id), newTeacher);
     return newTeacher;
   }
 
@@ -170,7 +168,7 @@ export class FirestoreTeacherRepository implements ITeacherRepository {
 
   async updateTeacher(id: string, data: Partial<Teacher>): Promise<Teacher | null> {
     await ensureFirestoreDatabaseSeeded();
-    await updateDoc(doc(db, 'teachers', id), data);
+    await safeUpdateDoc(doc(db, 'teachers', id), data);
     return this.getById(id);
   }
 }
@@ -289,7 +287,7 @@ export class FirestoreClassRepository implements IClassRepository {
       updatedAt: now
     };
 
-    await setDoc(doc(db, 'classes', code), firestoreData);
+    await safeSetDoc(doc(db, 'classes', code), firestoreData);
     console.log(`[Firestore] Class created successfully on Cloud Firestore at classes/${code}`);
 
     return newClass;
@@ -310,9 +308,9 @@ export class FirestoreClassRepository implements IClassRepository {
     if (!target) return null;
 
     const code = (target.classCode || id).toUpperCase().trim();
-    await setDoc(doc(db, 'classes', code), updatePayload, { merge: true });
+    await safeSetDoc(doc(db, 'classes', code), updatePayload, { merge: true });
     if (id !== code) {
-      await setDoc(doc(db, 'classes', id), updatePayload, { merge: true });
+      await safeSetDoc(doc(db, 'classes', id), updatePayload, { merge: true });
     }
 
     return this.getById(id);
@@ -412,11 +410,11 @@ export class FirestoreStudentRepository implements IStudentRepository {
     };
 
     // 1. Save to root students collection
-    await setDoc(doc(db, 'students', id), student);
+    await safeSetDoc(doc(db, 'students', id), student);
 
     // 2. Save to classes/{classCode}/members/{studentId}
     const classCode = studentData.classId.toUpperCase().trim();
-    await setDoc(doc(db, 'classes', classCode, 'members', id), {
+    await safeSetDoc(doc(db, 'classes', classCode, 'members', id), {
       studentId: id,
       name: studentData.fullName,
       fullName: studentData.fullName,
@@ -433,7 +431,7 @@ export class FirestoreStudentRepository implements IStudentRepository {
 
   async update(id: string, data: Partial<Student>): Promise<Student | null> {
     await ensureFirebaseAuth();
-    await updateDoc(doc(db, 'students', id), data);
+    await safeUpdateDoc(doc(db, 'students', id), data);
     return this.getById(id);
   }
 
@@ -525,12 +523,12 @@ export class FirestoreLessonRepository implements ILessonRepository {
     };
 
     // Save to root lessons collection
-    await setDoc(doc(db, 'lessons', id), newLesson);
+    await safeSetDoc(doc(db, 'lessons', id), newLesson);
 
     // Also save to classes/{classCode}/lessons/{lessonId}
     if (lessonData.classId) {
       const code = lessonData.classId.toUpperCase().trim();
-      await setDoc(doc(db, 'classes', code, 'lessons', id), newLesson);
+      await safeSetDoc(doc(db, 'classes', code, 'lessons', id), newLesson);
     }
 
     console.log(`[Firestore] Lesson created on Cloud Firestore: ${id}`);
@@ -542,12 +540,12 @@ export class FirestoreLessonRepository implements ILessonRepository {
     const now = new Date().toISOString();
     const payload = { ...data, updatedAt: now };
 
-    await setDoc(doc(db, 'lessons', id), payload, { merge: true });
+    await safeSetDoc(doc(db, 'lessons', id), payload, { merge: true });
 
     const current = await this.getById(id);
     if (current && current.classId) {
       const code = current.classId.toUpperCase().trim();
-      await setDoc(doc(db, 'classes', code, 'lessons', id), payload, { merge: true });
+      await safeSetDoc(doc(db, 'classes', code, 'lessons', id), payload, { merge: true });
     }
 
     return this.getById(id);
@@ -628,13 +626,13 @@ export class FirestoreTaskRepository implements ITaskRepository {
       id,
       createdAt: new Date().toISOString()
     };
-    await setDoc(doc(db, 'tasks', id), newTask);
+    await safeSetDoc(doc(db, 'tasks', id), newTask);
     return newTask;
   }
 
   async update(id: string, data: Partial<Task>): Promise<Task | null> {
     await ensureFirebaseAuth();
-    await setDoc(doc(db, 'tasks', id), data, { merge: true });
+    await safeSetDoc(doc(db, 'tasks', id), data, { merge: true });
     return this.getById(id);
   }
 
@@ -652,7 +650,7 @@ export class FirestoreTaskRepository implements ITaskRepository {
   async reorder(lessonId: string, taskIds: string[]): Promise<boolean> {
     await ensureFirebaseAuth();
     for (let i = 0; i < taskIds.length; i++) {
-      await updateDoc(doc(db, 'tasks', taskIds[i]), { order: i + 1 });
+      await safeUpdateDoc(doc(db, 'tasks', taskIds[i]), { order: i + 1 });
     }
     return true;
   }
@@ -726,7 +724,7 @@ export class FirestoreProgressRepository implements IProgressRepository {
       ...progress,
       id
     };
-    await setDoc(doc(db, 'progress', id), item, { merge: true });
+    await safeSetDoc(doc(db, 'progress', id), item, { merge: true });
     return item;
   }
 
@@ -789,13 +787,13 @@ export class FirestoreAssignmentRepository implements IAssignmentRepository {
       ...assignmentData,
       id
     };
-    await setDoc(doc(db, 'assignments', id), newAsgn);
+    await safeSetDoc(doc(db, 'assignments', id), newAsgn);
     return newAsgn;
   }
 
   async update(id: string, data: Partial<Assignment>): Promise<Assignment | null> {
     await ensureFirebaseAuth();
-    await setDoc(doc(db, 'assignments', id), data, { merge: true });
+    await safeSetDoc(doc(db, 'assignments', id), data, { merge: true });
     return this.getById(id);
   }
 
@@ -902,7 +900,7 @@ export class FirestoreSubmissionRepository implements ISubmissionRepository {
       id,
       submittedAt: new Date().toISOString()
     };
-    await setDoc(doc(db, 'submissions', id), newSub);
+    await safeSetDoc(doc(db, 'submissions', id), newSub);
     return newSub;
   }
 
@@ -915,7 +913,7 @@ export class FirestoreSubmissionRepository implements ISubmissionRepository {
       gradedAt: new Date().toISOString(),
       status: 'graded' as const
     };
-    await setDoc(doc(db, 'submissions', submissionId), payload, { merge: true });
+    await safeSetDoc(doc(db, 'submissions', submissionId), payload, { merge: true });
     return this.getById(submissionId);
   }
 }
@@ -960,7 +958,7 @@ export class FirestoreAnnouncementRepository implements IAnnouncementRepository 
       id,
       createdAt: new Date().toISOString()
     };
-    await setDoc(doc(db, 'announcements', id), newAnn);
+    await safeSetDoc(doc(db, 'announcements', id), newAnn);
     return newAnn;
   }
 
@@ -1026,7 +1024,7 @@ export class FirestoreCertificateRepository implements ICertificateRepository {
       id,
       issuedAt: new Date().toISOString()
     };
-    await setDoc(doc(db, 'certificates', id), newCert);
+    await safeSetDoc(doc(db, 'certificates', id), newCert);
     return newCert;
   }
 }

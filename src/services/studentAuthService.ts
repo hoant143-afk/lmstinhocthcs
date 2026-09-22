@@ -2,8 +2,8 @@ import { Student, StudentSession, StudentRegisterDto, StudentLoginDto, StudentAu
 import { apiClient, mapErrorCodeToMessage } from './apiClient';
 import { studentRepo } from '../repositories';
 import { decodeGoogleCredential } from '../utils/jwt';
-import { db, ensureFirebaseAuth } from '../lib/firebase';
-import { collection, doc, getDoc, getDocs, setDoc, query, where } from 'firebase/firestore';
+import { db, ensureFirebaseAuth, safeSetDoc } from '../lib/firebase';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 
 const STUDENT_TOKEN_KEY = 'sblms_student_token';
 const STUDENT_SESSION_KEY = 'sb_lms_student_session_v1';
@@ -141,7 +141,7 @@ export const studentAuthService = {
           updatedAt: now
         };
 
-        await setDoc(doc(db, 'students', studentId), newStudent);
+        await safeSetDoc(doc(db, 'students', studentId), newStudent);
 
         return {
           success: true,
@@ -432,7 +432,7 @@ export const studentAuthService = {
       // Also persist to Cloud Firestore
       try {
         await ensureFirebaseAuth();
-        await setDoc(doc(db, 'students', studentId), student, { merge: true });
+        await safeSetDoc(doc(db, 'students', studentId), student, { merge: true });
       } catch (e) {
         console.warn('[studentAuthService] Firestore Google student save warning:', e);
       }
@@ -659,7 +659,7 @@ export const studentAuthService = {
 
       try {
         await ensureFirebaseAuth();
-        await setDoc(doc(db, 'students', local.studentId), updateData, { merge: true });
+        await safeSetDoc(doc(db, 'students', local.studentId), updateData, { merge: true });
       } catch (err) {
         console.warn('[studentAuthService] Firestore updateProfile warning:', err);
       }

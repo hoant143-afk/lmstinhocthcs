@@ -2,8 +2,8 @@ import { studentRepo, classRepo, lessonRepo, progressRepo, teacherRepo } from '.
 import { Student, StudentSession, ClassEntity, Enrollment, EnrolledClassInfo } from '../types';
 import { apiClient, mapErrorCodeToMessage } from './apiClient';
 import { studentAuthService } from './studentAuthService';
-import { db, ensureFirebaseAuth } from '../lib/firebase';
-import { collection, doc, getDoc, getDocs, setDoc, query, where } from 'firebase/firestore';
+import { db, ensureFirebaseAuth, safeSetDoc } from '../lib/firebase';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 
 const STUDENT_SESSION_KEY = 'sb_lms_student_session_v1';
 const STUDENT_TOKEN_KEY = 'sblms_student_token';
@@ -252,12 +252,12 @@ export const studentService = {
         progress: 0
       };
 
-      await setDoc(doc(db, 'classes', classKey, 'members', effectiveStudentId), memberData, { merge: true });
+      await safeSetDoc(doc(db, 'classes', classKey, 'members', effectiveStudentId), memberData, { merge: true });
       if (targetClass.id !== classKey) {
-        await setDoc(doc(db, 'classes', targetClass.id, 'members', effectiveStudentId), memberData, { merge: true });
+        await safeSetDoc(doc(db, 'classes', targetClass.id, 'members', effectiveStudentId), memberData, { merge: true });
       }
 
-      await setDoc(doc(db, 'students', effectiveStudentId), {
+      await safeSetDoc(doc(db, 'students', effectiveStudentId), {
         id: effectiveStudentId,
         fullName: studentName,
         email: studentEmail,
@@ -266,7 +266,7 @@ export const studentService = {
         joinedAt: now
       }, { merge: true });
 
-      await setDoc(doc(db, 'enrollments', enrollmentId), newEnrollment);
+      await safeSetDoc(doc(db, 'enrollments', enrollmentId), newEnrollment);
     } catch (fsErr) {
       console.warn('[studentService] Firestore enrollment write warning:', fsErr);
     }

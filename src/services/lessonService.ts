@@ -24,7 +24,7 @@ export const lessonService = {
     scoringEnabled?: boolean;
   }): Promise<Lesson> {
     const existing = await lessonRepo.getByClassId(data.classId);
-    return lessonRepo.create({
+    const lessonPayload: any = {
       teacherId: data.teacherId,
       classId: data.classId,
       title: data.title.trim(),
@@ -32,12 +32,17 @@ export const lessonService = {
       objectives: data.objectives,
       coverImage: data.coverImage || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop&q=80',
       status: data.status || 'draft',
-      openAt: data.openAt,
-      dueAt: data.dueAt,
       sequentialLock: data.sequentialLock ?? true,
       scoringEnabled: data.scoringEnabled ?? true,
       order: existing.length + 1
-    });
+    };
+    if (data.openAt) {
+      lessonPayload.openAt = data.openAt;
+    }
+    if (data.dueAt) {
+      lessonPayload.dueAt = data.dueAt;
+    }
+    return lessonRepo.create(lessonPayload);
   },
 
   async updateLesson(id: string, data: Partial<Lesson>): Promise<Lesson | null> {

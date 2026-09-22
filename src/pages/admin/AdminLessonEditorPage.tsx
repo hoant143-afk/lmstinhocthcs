@@ -123,8 +123,9 @@ export const AdminLessonEditorPage: React.FC = () => {
         objectives
       });
       toastSuccess('Đã cập nhật thông tin bài học');
-    } catch (err) {
-      toastError('Lỗi lưu bài học');
+    } catch (err: any) {
+      console.error('[AdminLessonEditor] Error updating lesson:', err);
+      toastError(err?.message || 'Lỗi lưu bài học');
     }
   };
 
@@ -193,24 +194,37 @@ export const AdminLessonEditorPage: React.FC = () => {
       return;
     }
 
-    const settingsData = {
-      videoUrl: taskType === 'video' ? videoUrl : undefined,
-      videoDuration: taskType === 'video' ? videoDuration : undefined,
-      videoDurationSeconds: taskType === 'video' ? videoDuration : undefined,
-      antiSeekEnabled: taskType === 'video' ? antiSeekEnabled : undefined,
-      minWatchPercent: taskType === 'video' ? minWatchPercent : undefined,
-      documentContent: taskType === 'document' ? docContent : undefined,
-      contentMarkdown: taskType === 'document' ? docContent : undefined,
-      quizQuestions: taskType === 'quiz' ? quizQuestions : undefined,
-      minQuizPassScore: taskType === 'quiz' ? minQuizPassScore : undefined,
-      submissionType: (taskType === 'assignment' || taskType === 'submission') ? submissionType : undefined,
-      allowedDomains: (taskType === 'assignment' || taskType === 'submission')
-        ? allowedDomains.split(',').map(s => s.trim()).filter(Boolean)
-        : undefined,
+    const settingsData: Record<string, any> = {
       maxScore: taskPoints,
       allowUrlSubmission: true,
       allowTextSubmission: true
     };
+
+    if (taskType === 'video') {
+      if (videoUrl) settingsData.videoUrl = videoUrl;
+      if (videoDuration) {
+        settingsData.videoDuration = videoDuration;
+        settingsData.videoDurationSeconds = videoDuration;
+      }
+      settingsData.antiSeekEnabled = antiSeekEnabled;
+      settingsData.minWatchPercent = minWatchPercent;
+    } else if (taskType === 'document') {
+      if (docContent) {
+        settingsData.documentContent = docContent;
+        settingsData.contentMarkdown = docContent;
+      }
+    } else if (taskType === 'quiz') {
+      if (quizQuestions && quizQuestions.length > 0) {
+        settingsData.quizQuestions = quizQuestions;
+      }
+      settingsData.minQuizPassScore = minQuizPassScore;
+    } else if (taskType === 'assignment' || taskType === 'submission') {
+      settingsData.submissionType = submissionType;
+      const domains = allowedDomains.split(',').map(s => s.trim()).filter(Boolean);
+      if (domains.length > 0) {
+        settingsData.allowedDomains = domains;
+      }
+    }
 
     try {
       if (editingTask) {
@@ -241,8 +255,9 @@ export const AdminLessonEditorPage: React.FC = () => {
 
       setIsTaskModalOpen(false);
       loadLessonData(lesson.id);
-    } catch (err) {
-      toastError('Lỗi lưu nhiệm vụ');
+    } catch (err: any) {
+      console.error('[AdminLessonEditor] Error saving task:', err);
+      toastError(err?.message || 'Lỗi lưu nhiệm vụ');
     }
   };
 

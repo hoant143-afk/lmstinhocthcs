@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { getFirestore, Firestore, setDoc, updateDoc } from 'firebase/firestore';
 import { getAuth, signInAnonymously, Auth, onAuthStateChanged, User } from 'firebase/auth';
 import firebaseConfigData from '../../firebase-applet-config.json';
 
@@ -75,3 +75,56 @@ export async function ensureFirebaseAuth(): Promise<User | null> {
 
 // Start auth immediately in background upon module load
 ensureFirebaseAuth().catch(() => {});
+
+/**
+ * Recursively removes any keys whose values are `undefined`.
+ * Firestore strictly forbids `undefined` field values in setDoc/updateDoc/addDoc:
+ * "Function setDoc() called with invalid data. Unsupported field value: undefined"
+ */
+export function sanitizeFirestoreData<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeFirestoreData(item)) as unknown as T;
+  }
+  if (typeof data === 'object' && (data.constructor === Object || !data.constructor)) {
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (value !== undefined) {
+        cleaned[key] = sanitizeFirestoreData(value);
+      }
+    }
+    return cleaned as T;
+  }
+  return data;
+}
+
+/**
+ * Safe wrapper around Firestore `setDoc` that automatically strips all `undefined` values.
+ */
+export async function safeSetDoc<T extends Record<string, any>>(
+  docRef: any,
+  data: T,
+  options?: any
+): Promise<void> {
+  const cleanData = sanitizeFirestoreData(data);
+  if (options) {
+    return setDoc(docRef, cleanData, options);
+  }
+  return setDoc(docRef, cleanData);
+}
+
+/**
+ * Safe wrapper around Firestore `updateDoc` that automatically strips all `undefined` values.
+ */
+export async function safeUpdateDoc<T extends Record<string, any>>(
+  docRef: any,
+  data: T
+): Promise<void> {
+  const cleanData = sanitizeFirestoreData(data);
+  return updateDoc(docRef, cleanData as any);
+}
+
