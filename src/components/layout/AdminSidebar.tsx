@@ -76,10 +76,10 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ onItemClick }) => {
         <div className="p-3.5 rounded-xl bg-gradient-to-r from-blue-900/40 to-indigo-900/30 border border-blue-800/50">
           <div className="flex items-center gap-2 text-blue-400 font-bold text-xs">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>MÔ HÌNH BLENDED 30/70</span>
+            <span>BLENDED LEARNING</span>
           </div>
           <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-            30% Tự học & Video chống tua + 70% Thực hành & Nghiệm thu tại lớp.
+            Học tập kết hợp Trực tuyến & Thực hành, Nghiệm thu tại lớp.
           </p>
         </div>
 

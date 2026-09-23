@@ -1,53 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { useToast } from '../../contexts/ToastContext';
-import { studentService } from '../../services/studentService';
-import { classService, AvailableClassInfo } from '../../services/classService';
 import {
-  Layers,
   GraduationCap,
   UserCheck,
-  Sparkles,
   ArrowRight,
-  ShieldCheck,
-  CheckCircle2,
-  Users,
-  Award,
-  BookOpen,
-  Code,
-  KeyRound,
-  User,
-  School,
-  Copy,
-  Check,
-  Search,
-  ExternalLink
+  CheckCircle2
 } from 'lucide-react';
 import { Button } from '../../components/common/Button';
-import { Card } from '../../components/common/Card';
 
 export const LandingPage: React.FC = () => {
   const { setRole, teacher, studentSession, isAuthenticatedStudent } = useAuth();
-  const { toastSuccess, toastInfo } = useToast();
   const navigate = useNavigate();
-
-  // Available classes created by teachers
-  const [availableClasses, setAvailableClasses] = useState<AvailableClassInfo[]>([]);
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadClasses();
-  }, []);
-
-  const loadClasses = async () => {
-    try {
-      const list = await classService.getAvailableClassesForStudent();
-      setAvailableClasses(list);
-    } catch (err) {
-      console.error('Error loading available classes on landing:', err);
-    }
-  };
 
   const handleEnterAsTeacher = () => {
     setRole('ROLE_TEACHER');
@@ -58,34 +22,15 @@ export const LandingPage: React.FC = () => {
     }
   };
 
-  const handleCopyCode = (code: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(code);
-    setCopiedCode(code);
-    toastSuccess(`Đã sao chép mã lớp: ${code}`);
-    setTimeout(() => setCopiedCode(null), 2500);
-  };
-
-  const handleSelectClassCode = (code: string) => {
-    if (isAuthenticatedStudent) {
-      navigate(`/app?joinCode=${code}`);
-    } else {
-      navigate(`/app/login?code=${code}`);
-    }
-  };
-
   return (
     <div className="space-y-16 pb-20">
       {/* Hero Section */}
       <section className="relative overflow-hidden pt-10 pb-16 lg:pt-16 lg:pb-20 border-b border-slate-200/70 bg-gradient-to-b from-blue-50/50 via-white to-slate-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
-          <div className="text-center space-y-4 max-w-3xl mx-auto">
+          <div className="text-center max-w-3xl mx-auto">
             <h1 className="text-3xl sm:text-5xl font-black text-slate-900 tracking-tight leading-tight">
               SMART BLENDED <span className="text-blue-600">LMS</span>
             </h1>
-            <p className="text-sm sm:text-lg text-slate-600 leading-relaxed max-w-2xl mx-auto">
-              Nền tảng học tập kết hợp trực tuyến và trực tiếp theo lịch trình linh hoạt, tích hợp kiểm soát xem video bài giảng và quản lý tiến độ học tập toàn diện.
-            </p>
           </div>
 
           {/* Direct Student Join Box & Fast Portals Grid */}
@@ -193,10 +138,6 @@ export const LandingPage: React.FC = () => {
                   </div>
                 </div>
 
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Giáo viên có thể tạo nhiều lớp học, lập lịch học linh hoạt Online hoặc Trực tiếp, cấu hình Video chống tua và chấm điểm bài nộp của học sinh.
-                </p>
-
                 <Button
                   onClick={handleEnterAsTeacher}
                   size="lg"
@@ -207,36 +148,6 @@ export const LandingPage: React.FC = () => {
                   Vào Bảng Điều Khiển Giáo Viên
                 </Button>
               </div>
-
-              {/* Active Classes Preview Pill */}
-              {availableClasses.length > 0 && (
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                      <Layers className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Lớp học đang mở ({availableClasses.length})</span>
-                    </span>
-                    <Link to="/app/join" className="text-blue-600 font-bold hover:underline text-[11px]">
-                      Xem tất cả
-                    </Link>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {availableClasses.slice(0, 4).map(item => (
-                      <button
-                        key={item.classEntity.id}
-                        type="button"
-                        onClick={() => handleSelectClassCode(item.classEntity.classCode)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 text-xs text-slate-700 font-medium transition cursor-pointer"
-                      >
-                        <span className="font-bold text-slate-900">{item.classEntity.name}</span>
-                        <span className="font-mono text-[10px] text-emerald-800 bg-emerald-100 px-1 rounded font-bold">
-                          {item.classEntity.classCode}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>

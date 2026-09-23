@@ -96,10 +96,10 @@ export const StudentSidebar: React.FC<StudentSidebarProps> = ({ onItemClick }) =
       <div className="p-4 border-t border-slate-800 text-xs text-slate-400">
         <div className="flex items-center gap-2 text-emerald-400 font-semibold mb-1">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Tự học hiệu quả</span>
+          <span>Học tập chủ động</span>
         </div>
         <p className="text-[11px] text-slate-400">
-          Hoàn thành 30% online để mở khóa các hoạt động thực hành trên lớp.
+          Hoàn thành các nhiệm vụ được giao theo đúng thời khóa biểu.
         </p>
       </div>
     </aside>

@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { resetAllDataToSeed } from '../../repositories/LocalStorageRepository';
 import {
   Layers,
   UserCheck,
   GraduationCap,
   Sparkles,
-  RefreshCw,
   LogOut,
   Menu,
   X,
@@ -28,16 +26,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isMobileSidebar
   const navigate = useNavigate();
   const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-
-  const handleResetData = () => {
-    if (window.confirm('Bạn có chắc muốn đặt lại toàn bộ dữ liệu mẫu ban đầu không?')) {
-      resetAllDataToSeed();
-      toastSuccess('Đã đặt lại dữ liệu demo thành công!');
-      setTimeout(() => {
-        window.location.reload();
-      }, 500);
-    }
-  };
 
   const handleSwitchToTeacher = () => {
     setRole('ROLE_TEACHER');
@@ -170,16 +158,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isMobileSidebar
                 </div>
               )}
             </div>
-
-            {/* Reset Demo Button */}
-            <button
-              onClick={handleResetData}
-              title="Đặt lại dữ liệu mẫu"
-              className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition cursor-pointer hidden sm:flex items-center gap-1.5 text-xs font-medium"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Reset Demo</span>
-            </button>
 
             {/* User Profile display */}
             <div className="flex items-center gap-2.5 pl-2 border-l border-slate-200">

@@ -86,7 +86,7 @@ export const TeacherLoginPage: React.FC = () => {
             Cổng Đăng Nhập & Tạo Tài Khoản
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto">
-            Hệ thống Quản lý Học tập Kết hợp (Blended LMS 30/70): Thiết kế bài giảng, chống tua video và nghiệm thu trực tiếp.
+            Hệ thống Quản lý Học tập Kết hợp (Blended LMS): Thiết kế bài giảng, chống tua video và nghiệm thu trực tiếp.
           </p>
         </div>
 

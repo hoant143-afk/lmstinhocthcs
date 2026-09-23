@@ -64,7 +64,7 @@ export const StudentCertificatePage: React.FC = () => {
         </div>
         <h2 className="text-xl font-bold text-slate-900">Chưa Đủ Điều Kiện Nhận Chứng Nhận</h2>
         <p className="text-sm text-slate-500 leading-relaxed">
-          Bạn cần hoàn thành 100% các nhiệm vụ 30% Online và được Thầy cô nghiệm thu 70% Thực hành tại lớp để nhận Giấy Chứng Nhận chính thức.
+          Bạn cần hoàn thành 100% các nhiệm vụ học tập và được Thầy cô nghiệm thu đầy đủ các bài thực hành để nhận Giấy Chứng Nhận chính thức.
         </p>
         <Button onClick={() => navigate('/app')}>Quay Lại Bàn Học</Button>
       </div>
@@ -136,7 +136,7 @@ export const StudentCertificatePage: React.FC = () => {
               Môn học: <strong className="text-slate-800">{cls.subject}</strong> • Khối: <strong className="text-slate-800">{cls.grade}</strong> • Năm học: <strong className="text-slate-800">{cls.schoolYear}</strong>
             </p>
             <div className="inline-block p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 mt-2 font-medium">
-              Đạt chuẩn mô hình giáo dục đổi mới: <strong>30% Tự học Online (Video Anti-Seek & Quiz)</strong> và <strong>70% Hoạt động Thực hành, Dự án phòng Lab tại lớp</strong>.
+              Đã hoàn thành đầy đủ tất cả bài học và các nhiệm vụ thực hành của khóa học.
             </div>
           </div>
 

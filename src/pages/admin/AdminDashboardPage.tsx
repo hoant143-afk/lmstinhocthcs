@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { classService } from '../../services/classService';
+import { classService, sanitizeClassDescription } from '../../services/classService';
 import { lessonService } from '../../services/lessonService';
-import { studentRepo, submissionRepo, progressRepo, announcementRepo } from '../../repositories';
+import { announcementService, sanitizeGeneralText } from '../../services/announcementService';
+import { studentRepo, submissionRepo, progressRepo } from '../../repositories';
 import { ClassEntity, Lesson, Submission, Student, Announcement } from '../../types';
 import { Card, CardHeader } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -64,7 +65,7 @@ export const AdminDashboardPage: React.FC = () => {
       setAllStudents(studentsTotal);
       setPendingSubmissions(submissionsTotal.filter(s => s.status === 'submitted'));
 
-      const anns = await announcementRepo.getByTeacherId(teacher.id);
+      const anns = await announcementService.getAnnouncementsForTeacher(teacher.id);
       setAnnouncements(anns);
     } catch (err) {
       console.error('Error loading dashboard data', err);
@@ -156,7 +157,7 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
           <div>
             <div className="text-2xl font-black text-slate-900">{classes.length}</div>
-            <div className="text-xs font-medium text-slate-500 mt-0.5">Khóa học Blended</div>
+            <div className="text-xs font-medium text-slate-500 mt-0.5">Tổng số lớp học</div>
           </div>
         </Card>
       </div>
@@ -219,9 +220,11 @@ export const AdminDashboardPage: React.FC = () => {
                     <h3 className="font-bold text-slate-900 text-base group-hover:text-blue-600 transition line-clamp-1">
                       {cls.name}
                     </h3>
-                    <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
-                      {cls.description}
-                    </p>
+                    {sanitizeClassDescription(cls.description) ? (
+                      <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                        {sanitizeClassDescription(cls.description)}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-xs">
@@ -301,10 +304,10 @@ export const AdminDashboardPage: React.FC = () => {
             <h4 className="font-bold text-sm text-white mb-2">3 Bước Dạy Học Kết Hợp:</h4>
             <ol className="space-y-2 text-xs text-slate-300 list-decimal list-inside leading-relaxed">
               <li>
-                <span className="font-semibold text-white">Giao bài Online (30%):</span> Video chống tua + Mini Quiz tự học.
+                <span className="font-semibold text-white">Giao bài học:</span> Video chống tua + Mini Quiz tự học.
               </li>
               <li>
-                <span className="font-semibold text-white">Thực hành trên lớp (70%):</span> Học sinh làm sản phẩm, nộp link.
+                <span className="font-semibold text-white">Thực hành trên lớp:</span> Học sinh làm sản phẩm, nộp link.
               </li>
               <li>
                 <span className="font-semibold text-white">Nghiệm thu trực tiếp:</span> Thầy cô xác nhận và hệ thống cấp Chứng nhận.
@@ -330,8 +333,8 @@ export const AdminDashboardPage: React.FC = () => {
               <div className="space-y-3">
                 {announcements.slice(0, 3).map(ann => (
                   <div key={ann.id} className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                    <h5 className="text-xs font-bold text-slate-800 line-clamp-1">{ann.title}</h5>
-                    <p className="text-[11px] text-slate-500 line-clamp-2">{ann.content}</p>
+                    <h5 className="text-xs font-bold text-slate-800 line-clamp-1">{sanitizeGeneralText(ann.title)}</h5>
+                    <p className="text-[11px] text-slate-500 line-clamp-2">{sanitizeGeneralText(ann.content)}</p>
                   </div>
                 ))}
               </div>

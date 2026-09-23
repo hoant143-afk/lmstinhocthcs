@@ -7,7 +7,7 @@ import { classService } from '../../services/classService';
 import { lessonService } from '../../services/lessonService';
 import { progressService } from '../../services/progressService';
 import { certificateService } from '../../services/certificateService';
-import { announcementService } from '../../services/announcementService';
+import { announcementService, sanitizeGeneralText } from '../../services/announcementService';
 import { ClassEntity, Lesson, Certificate, Announcement, EnrolledClassInfo } from '../../types';
 import { Card, CardHeader } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -180,14 +180,14 @@ export const StudentDashboardPage: React.FC = () => {
           <div className="space-y-2 max-w-xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/30 text-emerald-200 text-xs font-semibold backdrop-blur-xs">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Bàn Học Thông Minh 30/70</span>
+              <span>Bàn Học Thông Minh</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
               Chào bạn, {studentName}!
             </h1>
             <p className="text-xs sm:text-sm text-emerald-100/80 leading-relaxed">
               {enrolledClasses.length > 0
-                ? `Bạn đang tham gia ${enrolledClasses.length} lớp học. Hãy hoàn thành 30% lý thuyết & video tương tác trực tuyến trước khi đến lớp thực hành.`
+                ? `Bạn đang tham gia ${enrolledClasses.length} lớp học. Hãy theo dõi lịch học và hoàn thành các nhiệm vụ được giao.`
                 : 'Chào mừng bạn! Nhập mã lớp học từ Thầy/Cô để bắt đầu tham gia lớp và làm bài tập.'}
             </p>
           </div>
@@ -406,7 +406,7 @@ export const StudentDashboardPage: React.FC = () => {
                 </h2>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                {activeClass.subject} • {activeClass.grade} • Mô hình Học Tập Kết Hợp Blended LMS
+                {activeClass.subject} • {activeClass.grade}
               </p>
             </div>
 
@@ -547,8 +547,8 @@ export const StudentDashboardPage: React.FC = () => {
                   <div className="space-y-3">
                     {announcements.slice(0, 3).map((ann) => (
                       <div key={ann.id} className="p-3 rounded-lg bg-slate-50 text-xs space-y-1">
-                        <div className="font-bold text-slate-800">{ann.title}</div>
-                        <p className="text-slate-600 line-clamp-2">{ann.content}</p>
+                        <div className="font-bold text-slate-800">{sanitizeGeneralText(ann.title)}</div>
+                        <p className="text-slate-600 line-clamp-2">{sanitizeGeneralText(ann.content)}</p>
                         <div className="text-[10px] text-slate-400 pt-1">
                           {new Date(ann.createdAt).toLocaleDateString('vi-VN')}
                         </div>

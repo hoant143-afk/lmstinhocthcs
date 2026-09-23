@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { classService } from '../../services/classService';
+import { classService, sanitizeClassDescription } from '../../services/classService';
 import { lessonService } from '../../services/lessonService';
 import { progressService } from '../../services/progressService';
 import { certificateService } from '../../services/certificateService';
@@ -108,7 +108,9 @@ export const StudentClassPage: React.FC = () => {
             <span className="text-xs text-slate-500">{cls.schoolYear}</span>
           </div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">{cls.name}</h1>
-          <p className="text-xs sm:text-sm text-slate-500 max-w-2xl leading-relaxed">{cls.description}</p>
+          {sanitizeClassDescription(cls.description) ? (
+            <p className="text-xs sm:text-sm text-slate-500 max-w-2xl leading-relaxed">{sanitizeClassDescription(cls.description)}</p>
+          ) : null}
         </div>
 
         {/* Certificate Eligibility Status */}
@@ -140,7 +142,7 @@ export const StudentClassPage: React.FC = () => {
             <div>
               <div className="text-xs font-bold uppercase text-slate-400">Hình Thức Khóa Học Kết Hợp</div>
               <div className="text-sm font-bold text-slate-800">
-                {modeStats.onlineCount} Buổi Online ({modeStats.onlinePercent}%) • {modeStats.offlineCount} Buổi Trực Tiếp ({modeStats.offlinePercent}%)
+                {modeStats.onlineCount} Buổi Online • {modeStats.offlineCount} Buổi Trực Tiếp
               </div>
             </div>
             <div className="text-xs text-slate-500">

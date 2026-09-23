@@ -14,9 +14,36 @@ export interface AvailableClassInfo {
   studentCount: number;
 }
 
+export function sanitizeClassDescription(desc?: string): string {
+  if (!desc) return '';
+  let cleaned = desc
+    .replace(/30\s*%\s*(tự\s*học\s*)?(online|trực\s*tuyến)?/gi, '')
+    .replace(/70\s*%\s*(thực\s*hành\s*)?(trực\s*tiếp|trên\s*lớp|phòng\s*lab)?/gi, '')
+    .replace(/30\s*\/\s*70/gi, '')
+    .replace(/mô\s*hình\s*blended\s*(learning)?\s*30\/70/gi, '')
+    .replace(/mô\s*hình\s*blended\s*learning\s*linh\s*hoạt\s*\(online\s*&\s*trực\s*tiếp\)\.?/gi, '')
+    .replace(/mô\s*hình\s*blended\s*learning\s*linh\s*hoạt/gi, '')
+    .replace(/theo\s*mô\s*hình\s*blended\s*learning/gi, '')
+    .replace(/tự\s*học\s*online\s*\+\s*thực\s*hành\s*trên\s*lớp/gi, '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  cleaned = cleaned.replace(/^[\s\-\–—:,•/]+|[\s\-\–—:,•/]+$/g, '').trim();
+  return cleaned;
+}
+
+function cleanClass(c: ClassEntity): ClassEntity {
+  return {
+    ...c,
+    description: sanitizeClassDescription(c.description)
+  };
+}
+
 export const classService = {
   async getAllClasses(): Promise<ClassEntity[]> {
-    return classRepo.getAll();
+    const classes = await classRepo.getAll();
+    return classes.map(cleanClass);
   },
 
   async getAvailableClassesForStudent(): Promise<AvailableClassInfo[]> {
@@ -29,7 +56,7 @@ export const classService = {
       const lessons = await lessonRepo.getByClassId(c.id);
       const students = await studentRepo.getByClassId(c.id);
       result.push({
-        classEntity: c,
+        classEntity: cleanClass(c),
         teacher: teacherMap.get(c.teacherId) || null,
         lessonCount: lessons.length,
         studentCount: students.length
@@ -39,15 +66,18 @@ export const classService = {
   },
 
   async getTeacherClasses(teacherId: string): Promise<ClassEntity[]> {
-    return classRepo.getAllByTeacher(teacherId);
+    const classes = await classRepo.getAllByTeacher(teacherId);
+    return classes.map(cleanClass);
   },
 
   async getClassById(id: string): Promise<ClassEntity | null> {
-    return classRepo.getById(id);
+    const c = await classRepo.getById(id);
+    return c ? cleanClass(c) : null;
   },
 
   async findByCode(classCode: string): Promise<ClassEntity | null> {
-    return classRepo.getByCode(classCode);
+    const c = await classRepo.getByCode(classCode);
+    return c ? cleanClass(c) : null;
   },
 
   async createClass(

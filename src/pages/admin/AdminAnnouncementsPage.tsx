@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { announcementService } from '../../services/announcementService';
+import { announcementService, sanitizeGeneralText } from '../../services/announcementService';
 import { classService } from '../../services/classService';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -102,7 +102,7 @@ export const AdminAnnouncementsPage: React.FC = () => {
         <EmptyState
           icon={<Bell className="w-8 h-8" />}
           title="Chưa có thông báo nào"
-          description="Đăng thông báo đầu tiên để nhắc học sinh chuẩn bị bài học 30% tại nhà."
+          description="Đăng thông báo đầu tiên để nhắc học sinh chuẩn bị bài học tại nhà."
           actionText="Tạo Thông Báo"
           onAction={() => setIsModalOpen(true)}
         />
@@ -118,7 +118,7 @@ export const AdminAnnouncementsPage: React.FC = () => {
                       <Megaphone className="w-4 h-4" />
                     </span>
                     <div>
-                      <h3 className="font-bold text-slate-900 text-base">{ann.title}</h3>
+                      <h3 className="font-bold text-slate-900 text-base">{sanitizeGeneralText(ann.title)}</h3>
                       <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
                         <span>Gửi tới: <strong className="text-slate-700">{cls?.name || 'Lớp học'}</strong></span>
                         <span>•</span>
@@ -137,7 +137,7 @@ export const AdminAnnouncementsPage: React.FC = () => {
                 </div>
 
                 <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  {ann.content}
+                  {sanitizeGeneralText(ann.content)}
                 </p>
               </Card>
             );

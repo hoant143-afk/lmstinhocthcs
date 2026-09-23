@@ -129,7 +129,7 @@ export const AdminLibraryPage: React.FC = () => {
             Thư Viện Bài Học & Giáo Án
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Quản lý và thiết kế các bài học theo mô hình Blended Learning 30/70 (Video chống tua, Trắc nghiệm, Thực hành phòng Lab).
+            Quản lý và thiết kế các bài học theo mô hình Blended Learning (Video chống tua, Trắc nghiệm, Thực hành phòng Lab).
           </p>
         </div>
 
@@ -165,8 +165,12 @@ export const AdminLibraryPage: React.FC = () => {
             <Card key={lesson.id} className="p-5 flex flex-col justify-between hover:border-blue-400 transition">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-100">
-                    Mô hình 30/70
+                  <span className={`px-2.5 py-0.5 rounded-lg text-xs font-bold border ${
+                    lesson.learningMode === 'offline'
+                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                      : 'bg-blue-50 text-blue-700 border-blue-100'
+                  }`}>
+                    {lesson.learningMode === 'offline' ? 'Trực Tiếp' : 'Online'}
                   </span>
                   {lesson.sequentialLock && (
                     <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
@@ -329,7 +333,7 @@ export const AdminLibraryPage: React.FC = () => {
               ))}
             </select>
             <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-              Toàn bộ cấu hình 30% video chống tua, câu hỏi mini quiz và bài tập thực hành 70% sẽ được nhân bản sang lớp được chọn.
+              Toàn bộ cấu hình video chống tua, tài liệu, câu hỏi mini quiz và bài tập thực hành sẽ được nhân bản sang lớp được chọn.
             </p>
           </div>
 

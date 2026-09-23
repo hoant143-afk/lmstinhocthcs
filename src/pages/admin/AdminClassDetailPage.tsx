@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { classService } from '../../services/classService';
+import { classService, sanitizeClassDescription } from '../../services/classService';
 import { lessonService } from '../../services/lessonService';
 import { studentService } from '../../services/studentService';
 import { submissionService } from '../../services/submissionService';
@@ -372,7 +372,9 @@ export const AdminClassDetailPage: React.FC = () => {
             <span className="text-xs text-slate-400 font-medium">{cls.schoolYear}</span>
           </div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">{cls.name}</h1>
-          <p className="text-xs text-slate-500 max-w-2xl leading-relaxed">{cls.description}</p>
+          {sanitizeClassDescription(cls.description) ? (
+            <p className="text-xs text-slate-500 max-w-2xl leading-relaxed">{sanitizeClassDescription(cls.description)}</p>
+          ) : null}
         </div>
 
         {/* Class Code Badge & Copy */}
@@ -436,7 +438,7 @@ export const AdminClassDetailPage: React.FC = () => {
             <Card className="p-4 border-slate-200">
               <div className="text-xs font-bold uppercase text-slate-400 mb-1">Buổi Trực Tuyến (Online)</div>
               <div className="text-2xl font-black text-blue-600">
-                {modeStats?.onlineCount || 0} <span className="text-xs text-slate-500 font-semibold">({modeStats?.onlinePercent || 0}%)</span>
+                {modeStats?.onlineCount || 0} <span className="text-xs text-slate-500 font-semibold">buổi</span>
               </div>
               <div className="text-xs text-slate-500 mt-1">Học qua video / link meeting</div>
             </Card>
@@ -444,7 +446,7 @@ export const AdminClassDetailPage: React.FC = () => {
             <Card className="p-4 border-slate-200">
               <div className="text-xs font-bold uppercase text-slate-400 mb-1">Buổi Trực Tiếp (Offline)</div>
               <div className="text-2xl font-black text-emerald-600">
-                {modeStats?.offlineCount || 0} <span className="text-xs text-slate-500 font-semibold">({modeStats?.offlinePercent || 0}%)</span>
+                {modeStats?.offlineCount || 0} <span className="text-xs text-slate-500 font-semibold">buổi</span>
               </div>
               <div className="text-xs text-slate-500 mt-1">Thực hành phòng máy & dự án</div>
             </Card>
@@ -461,7 +463,7 @@ export const AdminClassDetailPage: React.FC = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-lg font-black text-slate-900 tracking-tight">
-                  Tỷ Lệ Học Tập Kết Hợp (Course Blended Ratio)
+                  Kế Hoạch & Thời Khóa Biểu Khóa Học
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
                   Được tự động tổng hợp từ toàn bộ các buổi học đã xếp lịch trong khóa.
@@ -504,11 +506,11 @@ export const AdminClassDetailPage: React.FC = () => {
               <div className="flex items-center justify-between text-xs font-bold pt-1">
                 <span className="flex items-center gap-1.5 text-blue-700">
                   <Monitor className="w-4 h-4 text-blue-600" />
-                  ONLINE: {modeStats?.onlineCount || 0} buổi ({modeStats?.onlinePercent || 0}%)
+                  ONLINE: {modeStats?.onlineCount || 0} buổi
                 </span>
                 <span className="flex items-center gap-1.5 text-emerald-700">
                   <MapPin className="w-4 h-4 text-emerald-600" />
-                  TRỰC TIẾP: {modeStats?.offlineCount || 0} buổi ({modeStats?.offlinePercent || 0}%)
+                  TRỰC TIẾP: {modeStats?.offlineCount || 0} buổi
                 </span>
               </div>
             </div>

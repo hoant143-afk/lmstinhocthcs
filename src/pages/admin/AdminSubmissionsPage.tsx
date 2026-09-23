@@ -138,7 +138,7 @@ export const AdminSubmissionsPage: React.FC = () => {
       <div>
         <h1 className="text-2xl font-black text-slate-900 tracking-tight">Chấm Điểm & Nhận Xét Bài Nộp</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Đánh giá sản phẩm thực hành 70% trên lớp (Google Drive, Canva, Github) và gửi phản hồi cho học sinh
+          Đánh giá sản phẩm thực hành trên lớp (Google Drive, Canva, Github) và gửi phản hồi cho học sinh
         </p>
       </div>
 

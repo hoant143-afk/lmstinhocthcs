@@ -74,7 +74,7 @@ export const StudentProgressPage: React.FC = () => {
           Bảng Điểm & Nhật Ký Tiến Độ Cá Nhân
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 mt-1">
-          Theo dõi mức độ hoàn thành các chỉ tiêu 30% Online và 70% Thực hành phòng Lab.
+          Theo dõi mức độ hoàn thành các bài học và bài tập thực hành phòng Lab.
         </p>
       </div>
 
@@ -161,7 +161,7 @@ export const StudentProgressPage: React.FC = () => {
       <Card className="p-6 space-y-4">
         <CardHeader
           title="Nhật Ký Nộp Bài & Nhận Xét Của Thầy Cô"
-          subtitle="Điểm số và đánh giá chi tiết cho các sản phẩm 70% Thực hành"
+          subtitle="Điểm số và đánh giá chi tiết cho các sản phẩm thực hành"
         />
 
         {submissions.length === 0 ? (

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { classService } from '../../services/classService';
+import { classService, sanitizeClassDescription } from '../../services/classService';
 import { lessonService } from '../../services/lessonService';
 import { ClassEntity, CourseModeStats } from '../../types';
 import { Card, CardHeader } from '../../components/common/Card';
@@ -106,7 +106,7 @@ export const AdminClassesPage: React.FC = () => {
       subject: 'Tin học',
       grade: 'Lớp 10',
       schoolYear: '2025 - 2026',
-      description: 'Lớp học theo mô hình Blended Learning linh hoạt (Online & Trực tiếp).',
+      description: '',
       customCode: '',
       plannedLessonCount: 15,
       courseStartDate: today,
@@ -258,7 +258,7 @@ export const AdminClassesPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Quản Lý Lớp Học</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Quản lý kế hoạch khóa học và thời khóa biểu theo từng buổi Online hoặc Trực tiếp linh hoạt
+            Quản lý danh sách lớp học, thời khóa biểu và tiến độ của học sinh
           </p>
         </div>
 
@@ -277,7 +277,7 @@ export const AdminClassesPage: React.FC = () => {
         <EmptyState
           icon={<GraduationCap className="w-8 h-8" />}
           title="Chưa có lớp học nào"
-          description="Hãy tạo lớp học đầu tiên để lập kế hoạch khóa học và xếp lịch các buổi học Online / Trực tiếp."
+          description="Hãy tạo lớp học đầu tiên để lập kế hoạch khóa học và xếp lịch các buổi học."
           actionText="Tạo Lớp Ngay"
           onAction={handleOpenCreateModal}
         />
@@ -320,9 +320,11 @@ export const AdminClassesPage: React.FC = () => {
                   <h3 className="text-lg font-bold text-slate-900 group-hover:text-blue-600 transition leading-snug">
                     {cls.name}
                   </h3>
-                  <p className="text-xs text-slate-500 mt-1.5 line-clamp-2 leading-relaxed">
-                    {cls.description}
-                  </p>
+                  {sanitizeClassDescription(cls.description) ? (
+                    <p className="text-xs text-slate-500 mt-1.5 line-clamp-2 leading-relaxed">
+                      {sanitizeClassDescription(cls.description)}
+                    </p>
+                  ) : null}
 
                   {/* Course Plan & Blended Ratio Breakdown */}
                   <div className="mt-4 p-3 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5">
@@ -357,11 +359,11 @@ export const AdminClassesPage: React.FC = () => {
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="flex items-center gap-1 font-bold text-blue-700">
                         <Monitor className="w-3 h-3 text-blue-600" />
-                        Online: {stats.onlineCount} ({stats.onlinePercent}%)
+                        Online: {stats.onlineCount} buổi
                       </span>
                       <span className="flex items-center gap-1 font-bold text-emerald-700">
                         <MapPin className="w-3 h-3 text-emerald-600" />
-                        Trực tiếp: {stats.offlineCount} ({stats.offlinePercent}%)
+                        Trực tiếp: {stats.offlineCount} buổi
                       </span>
                     </div>
                   </div>
@@ -597,7 +599,7 @@ export const AdminClassesPage: React.FC = () => {
           {(editingClass || createStep === 2) && (
             <div className="space-y-4 pt-2">
               <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 text-xs text-blue-900 leading-relaxed">
-                <strong>Kế hoạch khóa học:</strong> Xác định số buổi học dự kiến và thời gian khóa học. Tỷ lệ Online / Trực tiếp sẽ được hệ thống tính toán động dựa trên các buổi học bạn xếp lịch.
+                <strong>Kế hoạch khóa học:</strong> Xác định số buổi học dự kiến và thời gian khóa học.
               </div>
 
               <div>

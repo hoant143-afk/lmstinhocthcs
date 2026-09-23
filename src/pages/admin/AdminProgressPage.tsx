@@ -117,10 +117,10 @@ export const AdminProgressPage: React.FC = () => {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-          Báo Cáo Tiến Độ & Nghiệm Thu Trực Tiếp (70%)
+          Báo Cáo Tiến Độ & Nghiệm Thu Trực Tiếp
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Theo dõi mức độ hoàn thành bài học 30% Online và xác nhận các bài thực hành phòng Lab tại lớp
+          Theo dõi mức độ hoàn thành bài học và xác nhận các bài thực hành phòng Lab tại lớp
         </p>
       </div>
 
