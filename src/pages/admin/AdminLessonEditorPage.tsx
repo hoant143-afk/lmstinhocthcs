@@ -3,19 +3,18 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { lessonService } from '../../services/lessonService';
 import { taskService } from '../../services/taskService';
 import { classService } from '../../services/classService';
-import { Lesson, Task, TaskPhase, TaskType, QuizQuestion, QuizOption, ClassEntity } from '../../types';
+import { Lesson, Task, TaskPhase, TaskType, QuizQuestion, ClassEntity, LessonLearningMode } from '../../types';
 import { Card, CardHeader } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Input, Textarea, Select } from '../../components/common/Input';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
-import { Badge, TaskTypeBadge } from '../../components/common/Badge';
+import { Badge, TaskTypeBadge, LearningModeBadge, LessonStatusBadge } from '../../components/common/Badge';
 import { EmptyState } from '../../components/common/EmptyState';
 import { useToast } from '../../contexts/ToastContext';
 import {
   ArrowLeft,
   PlusCircle,
-  GripVertical,
   Video,
   FileText,
   HelpCircle,
@@ -29,7 +28,13 @@ import {
   Sparkles,
   ExternalLink,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Monitor,
+  MapPin,
+  Calendar,
+  ArrowUp,
+  ArrowDown,
+  Eye
 } from 'lucide-react';
 
 export const AdminLessonEditorPage: React.FC = () => {
@@ -45,7 +50,14 @@ export const AdminLessonEditorPage: React.FC = () => {
   // Lesson Meta Form State
   const [lessonTitle, setLessonTitle] = useState('');
   const [lessonDesc, setLessonDesc] = useState('');
+  const [learningMode, setLearningMode] = useState<LessonLearningMode>('online');
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [startTime, setStartTime] = useState('08:00');
+  const [endTime, setEndTime] = useState('09:30');
+  const [location, setLocation] = useState('');
+  const [onlineMeetingUrl, setOnlineMeetingUrl] = useState('');
   const [sequentialLock, setSequentialLock] = useState(true);
+  const [status, setStatus] = useState<Lesson['status']>('scheduled');
   const [objectives, setObjectives] = useState<string[]>([]);
   const [newObjective, setNewObjective] = useState('');
 
@@ -58,7 +70,6 @@ export const AdminLessonEditorPage: React.FC = () => {
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDesc, setTaskDesc] = useState('');
   const [taskType, setTaskType] = useState<TaskType>('video');
-  const [taskPhase, setTaskPhase] = useState<TaskPhase>('online');
   const [taskRequired, setTaskRequired] = useState(true);
   const [taskDuration, setTaskDuration] = useState(15);
   const [taskPoints, setTaskPoints] = useState(10);
@@ -94,8 +105,15 @@ export const AdminLessonEditorPage: React.FC = () => {
       }
       setLesson(l);
       setLessonTitle(l.title);
-      setLessonDesc(l.description);
-      setSequentialLock(l.sequentialLock);
+      setLessonDesc(l.description || '');
+      setLearningMode(l.learningMode || 'online');
+      setScheduledDate(l.scheduledDate || '');
+      setStartTime(l.startTime || '08:00');
+      setEndTime(l.endTime || '09:30');
+      setLocation(l.location || '');
+      setOnlineMeetingUrl(l.onlineMeetingUrl || '');
+      setSequentialLock(l.sequentialLock ?? true);
+      setStatus(l.status || 'scheduled');
       setObjectives(l.objectives || []);
 
       const [classData, tList] = await Promise.all([
@@ -117,12 +135,20 @@ export const AdminLessonEditorPage: React.FC = () => {
     if (!lesson) return;
     try {
       await lessonService.updateLesson(lesson.id, {
-        title: lessonTitle,
-        description: lessonDesc,
+        title: lessonTitle.trim(),
+        description: lessonDesc.trim(),
+        learningMode,
+        scheduledDate,
+        startTime,
+        endTime,
+        location: learningMode === 'offline' ? location : undefined,
+        onlineMeetingUrl: learningMode === 'online' ? onlineMeetingUrl : undefined,
         sequentialLock,
+        status,
         objectives
       });
-      toastSuccess('Đã cập nhật thông tin bài học');
+      toastSuccess('Đã cập nhật thông tin buổi học');
+      loadLessonData(lesson.id);
     } catch (err: any) {
       console.error('[AdminLessonEditor] Error updating lesson:', err);
       toastError(err?.message || 'Lỗi lưu bài học');
@@ -139,14 +165,13 @@ export const AdminLessonEditorPage: React.FC = () => {
     setObjectives(objectives.filter((_, i) => i !== idx));
   };
 
-  const handleOpenCreateTask = (phase: TaskPhase = 'online') => {
+  const handleOpenCreateTask = () => {
     setEditingTask(null);
     setTaskTitle('');
     setTaskDesc('');
-    setTaskPhase(phase);
-    setTaskType(phase === 'online' ? 'video' : 'assignment');
+    setTaskType(learningMode === 'online' ? 'video' : 'assignment');
     setTaskRequired(true);
-    setTaskDuration(phase === 'online' ? 15 : 45);
+    setTaskDuration(learningMode === 'online' ? 15 : 45);
     setTaskPoints(10);
 
     setVideoUrl('');
@@ -167,20 +192,19 @@ export const AdminLessonEditorPage: React.FC = () => {
     setTaskTitle(task.title);
     setTaskDesc(task.description);
     setTaskType(task.type);
-    setTaskPhase(task.phase);
     setTaskRequired(task.required);
     setTaskDuration(task.durationMinutes || 15);
     setTaskPoints(task.points || 10);
 
-    setVideoUrl(task.settings.videoUrl || '');
-    setVideoDuration(task.settings.videoDuration || 300);
-    setAntiSeekEnabled(task.settings.antiSeekEnabled ?? true);
-    setMinWatchPercent(task.settings.minWatchPercent || 90);
-    setDocContent(task.settings.documentContent || task.settings.contentMarkdown || '');
-    setQuizQuestions(task.settings.quizQuestions || []);
-    setMinQuizPassScore(task.settings.minQuizPassScore || 70);
-    setSubmissionType(task.settings.submissionType || 'url');
-    setAllowedDomains(task.settings.allowedDomains?.join(', ') || 'drive.google.com, docs.google.com, canva.com, scratch.mit.edu, github.com');
+    setVideoUrl(task.settings?.videoUrl || '');
+    setVideoDuration(task.settings?.videoDuration || 300);
+    setAntiSeekEnabled(task.settings?.antiSeekEnabled ?? true);
+    setMinWatchPercent(task.settings?.minWatchPercent || 90);
+    setDocContent(task.settings?.documentContent || task.settings?.contentMarkdown || '');
+    setQuizQuestions(task.settings?.quizQuestions || []);
+    setMinQuizPassScore(task.settings?.minQuizPassScore || 70);
+    setSubmissionType(task.settings?.submissionType || 'url');
+    setAllowedDomains(task.settings?.allowedDomains?.join(', ') || 'drive.google.com, docs.google.com, canva.com, scratch.mit.edu, github.com');
 
     setIsTaskModalOpen(true);
   };
@@ -226,13 +250,16 @@ export const AdminLessonEditorPage: React.FC = () => {
       }
     }
 
+    // Default phase matches the lesson's mode for database backwards compatibility
+    const effectivePhase: TaskPhase = (learningMode === 'offline' ? 'offline' : 'online');
+
     try {
       if (editingTask) {
         await taskService.updateTask(editingTask.id, {
-          title: taskTitle,
-          description: taskDesc,
+          title: taskTitle.trim(),
+          description: taskDesc.trim(),
           type: taskType,
-          phase: taskPhase,
+          phase: effectivePhase,
           required: taskRequired,
           durationMinutes: taskDuration,
           points: taskPoints,
@@ -242,13 +269,14 @@ export const AdminLessonEditorPage: React.FC = () => {
       } else {
         await taskService.createTask({
           lessonId: lesson.id,
-          title: taskTitle,
-          description: taskDesc,
+          title: taskTitle.trim(),
+          description: taskDesc.trim(),
           type: taskType,
-          phase: taskPhase,
+          phase: effectivePhase,
           required: taskRequired,
           settings: settingsData,
-          order: tasks.length + 1
+          order: tasks.length + 1,
+          orderIndex: tasks.length + 1
         });
         toastSuccess('Đã thêm nhiệm vụ mới');
       }
@@ -286,14 +314,12 @@ export const AdminLessonEditorPage: React.FC = () => {
     const taskIds = newTasks.map(t => t.id);
     setTasks(newTasks);
     await taskService.reorderTasks(lesson.id, taskIds);
+    toastSuccess('Đã đổi thứ tự nhiệm vụ');
   };
 
   if (isLoading || !lesson) {
-    return <div className="p-8 text-center text-slate-500">Đang tải trình thiết kế bài học...</div>;
+    return <div className="p-8 text-center text-slate-500">Đang tải trình thiết kế buổi học...</div>;
   }
-
-  const onlineTasks = tasks.filter(t => t.phase === 'online');
-  const offlineTasks = tasks.filter(t => t.phase === 'offline');
 
   return (
     <div className="space-y-6 pb-16">
@@ -307,10 +333,17 @@ export const AdminLessonEditorPage: React.FC = () => {
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
               <span className="text-xs font-semibold text-slate-500">{cls?.name}</span>
               <span className="text-xs text-slate-300">•</span>
-              <Badge variant="blue">Mô hình 30/70</Badge>
+              <LearningModeBadge mode={lesson.learningMode} />
+              <LessonStatusBadge status={lesson.status} />
+              {lesson.scheduledDate && (
+                <span className="text-xs text-slate-500 flex items-center gap-1 font-medium">
+                  <Calendar className="w-3.5 h-3.5" />
+                  {lesson.scheduledDate} ({lesson.startTime} - {lesson.endTime})
+                </span>
+              )}
             </div>
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">{lesson.title}</h1>
           </div>
@@ -319,10 +352,10 @@ export const AdminLessonEditorPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
-            onClick={() => navigate(`/app/lesson/${lesson.id}`)}
-            leftIcon={<ExternalLink className="w-4 h-4" />}
+            onClick={() => navigate(`/app/lessons/${lesson.id}`)}
+            leftIcon={<Eye className="w-4 h-4 text-blue-600" />}
           >
-            Xem Với Tư Cách Học Sinh
+            Xem Giao Diện Học Sinh
           </Button>
         </div>
       </div>
@@ -330,27 +363,123 @@ export const AdminLessonEditorPage: React.FC = () => {
       {/* Lesson Settings Form */}
       <Card className="p-6">
         <CardHeader
-          title="Cấu Hình Bài Học & Khóa Tuần Tự"
-          subtitle="Quy tắc mở khóa nội dung 30% Online trước khi chuyển sang 70% Thực hành"
+          title="Thông Tin & Lịch Trình Buổi Học"
+          subtitle="Mỗi buổi học là một phiên duy nhất: Online hoặc Trực tiếp"
         />
 
         <form onSubmit={handleSaveLessonMeta} className="space-y-4 mt-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input
-              label="Tên Bài Học"
+              label="Tên Buổi Học"
               required
               value={lessonTitle}
               onChange={e => setLessonTitle(e.target.value)}
             />
             <Input
-              label="Mô Tả Ngắn / Hướng Dẫn Chung"
+              label="Mô Tả Ngắn / Hướng Dẫn"
               value={lessonDesc}
               onChange={e => setLessonDesc(e.target.value)}
             />
           </div>
 
+          {/* Mode selector */}
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
+              Hình Thức Học Của Buổi Này <span className="text-rose-500">*</span>
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
+              <button
+                type="button"
+                onClick={() => setLearningMode('online')}
+                className={`p-3 rounded-2xl border text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                  learningMode === 'online'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <Monitor className="w-4 h-4" />
+                <span>ONLINE (Trực tuyến)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLearningMode('offline')}
+                className={`p-3 rounded-2xl border text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                  learningMode === 'offline'
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <MapPin className="w-4 h-4" />
+                <span>TRỰC TIẾP (Tại phòng Lab)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Schedule Inputs */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Ngày Học</label>
+              <input
+                type="date"
+                value={scheduledDate}
+                onChange={e => setScheduledDate(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:border-blue-500 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Giờ Bắt Đầu</label>
+              <input
+                type="time"
+                value={startTime}
+                onChange={e => setStartTime(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:border-blue-500 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Giờ Kết Thúc</label>
+              <input
+                type="time"
+                value={endTime}
+                onChange={e => setEndTime(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:border-blue-500 outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Conditional Location / Online Meeting Url */}
+          {learningMode === 'online' ? (
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                Link Phòng Học Online (Google Meet, Zoom, Teams...)
+              </label>
+              <input
+                type="url"
+                placeholder="https://meet.google.com/abc-defg-hij"
+                value={onlineMeetingUrl}
+                onChange={e => setOnlineMeetingUrl(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-blue-500 outline-none"
+              />
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                Địa Điểm / Phòng Học Trực Tiếp
+              </label>
+              <input
+                type="text"
+                placeholder="Ví dụ: Phòng thực hành Tin học 01"
+                value={location}
+                onChange={e => setLocation(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-blue-500 outline-none"
+              />
+            </div>
+          )}
+
           {/* Sequential Lock Toggle */}
-          <div className="p-4 rounded-2xl bg-blue-50/60 border border-blue-100 flex items-center justify-between gap-4">
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
                 <Lock className="w-5 h-5" />
@@ -358,7 +487,7 @@ export const AdminLessonEditorPage: React.FC = () => {
               <div>
                 <div className="text-sm font-bold text-slate-900">Bật Chế Độ Mở Khóa Tuần Tự (Sequential Lock)</div>
                 <div className="text-xs text-slate-500 leading-relaxed">
-                  Học sinh bắt buộc phải xem xong video chống tua & vượt qua mini quiz trước khi mở khóa bài tập thực hành trên lớp.
+                  Học sinh bắt buộc phải hoàn thành lần lượt từng nhiệm vụ trước khi mở khóa nhiệm vụ tiếp theo.
                 </div>
               </div>
             </div>
@@ -376,24 +505,29 @@ export const AdminLessonEditorPage: React.FC = () => {
           {/* Objectives List */}
           <div>
             <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-              Mục Tiêu Bài Học (Objectives)
+              Mục Tiêu Buổi Học (Objectives)
             </label>
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="Ví dụ: Hiểu cú pháp vòng lặp for và while trong Python"
+                placeholder="Thêm mục tiêu cần đạt được..."
                 value={newObjective}
                 onChange={e => setNewObjective(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddObjective(); } }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddObjective();
+                  }
+                }}
                 className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:border-blue-500 outline-none"
               />
               <Button type="button" variant="outline" onClick={handleAddObjective}>
-                Thêm Mục Tiêu
+                Thêm
               </Button>
             </div>
 
             {objectives.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-3">
+              <div className="flex flex-wrap gap-2 mt-2">
                 {objectives.map((obj, i) => (
                   <span
                     key={i}
@@ -404,7 +538,7 @@ export const AdminLessonEditorPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => handleRemoveObjective(i)}
-                      className="ml-1 text-slate-400 hover:text-rose-600"
+                      className="ml-1 text-slate-400 hover:text-rose-600 cursor-pointer"
                     >
                       &times;
                     </button>
@@ -415,161 +549,132 @@ export const AdminLessonEditorPage: React.FC = () => {
           </div>
 
           <div className="flex justify-end pt-2">
-            <Button type="submit">Lưu Cấu Hình</Button>
+            <Button type="submit">Lưu Cấu Hình Buổi Học</Button>
           </div>
         </form>
       </Card>
 
-      {/* Two Column Blended Pipeline */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Column 1: 30% Online Phase */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between bg-blue-50 p-4 rounded-2xl border border-blue-200">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-blue-600 text-white text-xs font-black flex items-center justify-center">
-                  30%
-                </span>
-                <h3 className="font-bold text-slate-900 text-base">Giai Đoạn 1: Tự Học Online</h3>
-              </div>
-              <p className="text-xs text-blue-800 mt-0.5">Video chống tua, tài liệu lý thuyết, trắc nghiệm nhanh</p>
+      {/* Single Unified Task List (Section X) */}
+      <Card className="p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-black text-slate-900 tracking-tight">
+                Danh Sách Nhiệm Vụ ({tasks.length})
+              </h2>
+              <LearningModeBadge mode={lesson.learningMode} />
             </div>
-
-            <Button
-              size="sm"
-              onClick={() => handleOpenCreateTask('online')}
-              leftIcon={<PlusCircle className="w-4 h-4" />}
-            >
-              Thêm Nhiệm Vụ
-            </Button>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Tất cả nhiệm vụ được hoàn thành theo thứ tự tuần tự trong buổi học này
+            </p>
           </div>
 
-          {onlineTasks.length === 0 ? (
-            <div className="p-8 border-2 border-dashed border-slate-200 rounded-2xl text-center text-slate-400 text-xs">
-              Chưa có nhiệm vụ online nào. Nhấn "+ Thêm Nhiệm Vụ" để tạo video hoặc trắc nghiệm.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {onlineTasks.map((t, idx) => (
-                <Card key={t.id} className="p-4 flex items-center justify-between gap-3 group hover:border-blue-400 transition">
-                  <div className="flex items-center gap-3">
-                    <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0">
-                      {idx + 1}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <TaskTypeBadge type={t.type} />
-                        {t.required && (
-                          <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">
-                            Bắt buộc
-                          </span>
-                        )}
-                      </div>
-                      <h4 className="font-bold text-slate-900 text-sm mt-1">{t.title}</h4>
-                      <p className="text-xs text-slate-500 line-clamp-1">{t.description}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleOpenEditTask(t)}
-                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
-                      title="Chỉnh sửa"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setDeleteTargetTaskId(t.id)}
-                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                      title="Xóa"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )}
+          <Button
+            onClick={handleOpenCreateTask}
+            leftIcon={<PlusCircle className="w-4 h-4" />}
+          >
+            + Thêm Nhiệm Vụ
+          </Button>
         </div>
 
-        {/* Column 2: 70% Offline Phase */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between bg-amber-50 p-4 rounded-2xl border border-amber-200">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-amber-500 text-white text-xs font-black flex items-center justify-center">
-                  70%
-                </span>
-                <h3 className="font-bold text-slate-900 text-base">Giai Đoạn 2: Thực Hành Trực Tiếp</h3>
+        {tasks.length === 0 ? (
+          <EmptyState
+            icon={<CheckCircle2 className="w-8 h-8" />}
+            title="Chưa có nhiệm vụ nào"
+            description="Hãy thêm video, tài liệu, mini quiz hoặc bài tập thực hành cho buổi học này."
+            actionText="+ Thêm Nhiệm Vụ Đầu Tiên"
+            onAction={handleOpenCreateTask}
+          />
+        ) : (
+          <div className="space-y-3">
+            {tasks.map((t, idx) => (
+              <div
+                key={t.id}
+                className="p-4 rounded-2xl border border-slate-200 bg-white hover:border-blue-400 transition flex flex-col sm:flex-row sm:items-center justify-between gap-4 group"
+              >
+                <div className="flex items-start gap-3.5">
+                  {/* Reorder arrows and index pill */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex flex-col items-center">
+                      <button
+                        disabled={idx === 0}
+                        onClick={() => handleMoveTask(idx, 'up')}
+                        className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                        title="Lên"
+                      >
+                        <ArrowUp className="w-3 h-3" />
+                      </button>
+                      <button
+                        disabled={idx === tasks.length - 1}
+                        onClick={() => handleMoveTask(idx, 'down')}
+                        className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                        title="Xuống"
+                      >
+                        <ArrowDown className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center font-bold text-xs border border-blue-100">
+                      {idx + 1}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <TaskTypeBadge type={t.type} />
+                      {t.required && (
+                        <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">
+                          Bắt buộc
+                        </span>
+                      )}
+                      {t.durationMinutes && (
+                        <span className="text-[11px] text-slate-500 flex items-center gap-1 font-medium">
+                          <Clock className="w-3 h-3 text-slate-400" />
+                          {t.durationMinutes} phút
+                        </span>
+                      )}
+                      {t.points && (
+                        <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                          {t.points} điểm
+                        </span>
+                      )}
+                    </div>
+
+                    <h4 className="font-bold text-slate-900 text-sm mt-1">{t.title}</h4>
+                    {t.description && (
+                      <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">{t.description}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 self-end sm:self-center shrink-0">
+                  <button
+                    onClick={() => handleOpenEditTask(t)}
+                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                    title="Chỉnh sửa"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setDeleteTargetTaskId(t.id)}
+                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                    title="Xóa"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-              <p className="text-xs text-amber-800 mt-0.5">Dự án nhóm, bài tập phòng Lab, nghiệm thu tại lớp</p>
-            </div>
-
-            <Button
-              size="sm"
-              variant="amber"
-              onClick={() => handleOpenCreateTask('offline')}
-              leftIcon={<PlusCircle className="w-4 h-4" />}
-            >
-              Thêm Hoạt Động
-            </Button>
+            ))}
           </div>
-
-          {offlineTasks.length === 0 ? (
-            <div className="p-8 border-2 border-dashed border-slate-200 rounded-2xl text-center text-slate-400 text-xs">
-              Chưa có hoạt động thực hành nào. Nhấn "+ Thêm Hoạt Động" để tạo bài thực hành phòng Lab.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {offlineTasks.map((t, idx) => (
-                <Card key={t.id} className="p-4 flex items-center justify-between gap-3 group hover:border-amber-400 transition">
-                  <div className="flex items-center gap-3">
-                    <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-xs shrink-0">
-                      {idx + 1}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <TaskTypeBadge type={t.type} />
-                        {t.required && (
-                          <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">
-                            Bắt buộc
-                          </span>
-                        )}
-                      </div>
-                      <h4 className="font-bold text-slate-900 text-sm mt-1">{t.title}</h4>
-                      <p className="text-xs text-slate-500 line-clamp-1">{t.description}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleOpenEditTask(t)}
-                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition"
-                      title="Chỉnh sửa"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setDeleteTargetTaskId(t.id)}
-                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                      title="Xóa"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+        )}
+      </Card>
 
       {/* Task Creation & Edit Modal */}
       <Modal
         isOpen={isTaskModalOpen}
         onClose={() => setIsTaskModalOpen(false)}
         title={editingTask ? 'Chỉnh Sửa Nhiệm Vụ' : 'Thêm Nhiệm Vụ Mới'}
-        subtitle={`Giai đoạn: ${taskPhase === 'online' ? '30% Tự học Online' : '70% Thực hành Trực tiếp'}`}
+        subtitle={`Buổi học: ${lesson.title} (${learningMode === 'online' ? 'Online' : 'Trực tiếp'})`}
         maxWidth="lg"
       >
         <form onSubmit={handleSaveTask} className="space-y-4">
@@ -582,33 +687,40 @@ export const AdminLessonEditorPage: React.FC = () => {
                 { value: 'video', label: '🎬 Video Bài Giảng (Có Chống Tua)' },
                 { value: 'document', label: '📄 Tài Liệu Đọc / Bài Viết' },
                 { value: 'quiz', label: '❓ Trắc Nghiệm Nhanh (Mini Quiz)' },
-                { value: 'assignment', label: '💻 Bài Tập Thực Hành / Nộp Link Drive' },
+                { value: 'assignment', label: '💻 Bài Tập Thực Hành / Nộp Link' },
                 { value: 'teacher_confirmation', label: '🏆 Nghiệm Thu Trực Tiếp Tại Lớp' }
               ]}
             />
 
-            <Select
-              label="Giai Đoạn"
-              value={taskPhase}
-              onChange={e => setTaskPhase(e.target.value as TaskPhase)}
-              options={[
-                { value: 'online', label: '30% Tự Học Online' },
-                { value: 'offline', label: '70% Thực Hành Trực Tiếp' }
-              ]}
-            />
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                label="Thời Lượng (phút)"
+                type="number"
+                min="1"
+                value={taskDuration}
+                onChange={e => setTaskDuration(parseInt(e.target.value) || 15)}
+              />
+              <Input
+                label="Điểm Thưởng"
+                type="number"
+                min="0"
+                value={taskPoints}
+                onChange={e => setTaskPoints(parseInt(e.target.value) || 10)}
+              />
+            </div>
           </div>
 
           <Input
             label="Tiêu Đề Nhiệm Vụ"
             required
-            placeholder="Ví dụ: Xem Video Giới Thiệu Cấu Trúc Rẽ Nhánh"
+            placeholder="Ví dụ: Xem Video Giới Thiệu Cấu Trúc Lặp"
             value={taskTitle}
             onChange={e => setTaskTitle(e.target.value)}
           />
 
           <Textarea
             label="Mô Tả / Hướng Dẫn Thực Hiện"
-            rows={3}
+            rows={2}
             placeholder="Ghi chú chi tiết cho học sinh..."
             value={taskDesc}
             onChange={e => setTaskDesc(e.target.value)}
@@ -707,7 +819,7 @@ export const AdminLessonEditorPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setQuizQuestions(quizQuestions.filter((_, i) => i !== qIndex))}
-                      className="text-rose-500 hover:text-rose-700 ml-2"
+                      className="text-rose-500 hover:text-rose-700 ml-2 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

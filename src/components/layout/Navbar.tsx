@@ -91,9 +91,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isMobileSidebar
                   <span className="font-extrabold text-base sm:text-lg tracking-tight text-slate-900">
                     SMART BLENDED <span className="text-blue-600">LMS</span>
                   </span>
-                  <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/70">
-                    30% Online – 70% Trực tiếp
-                  </span>
                 </div>
                 <p className="text-[11px] text-slate-500 hidden md:block">
                   Hệ thống Học tập Kết hợp Đổi mới Sư phạm

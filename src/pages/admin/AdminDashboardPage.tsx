@@ -155,8 +155,8 @@ export const AdminDashboardPage: React.FC = () => {
             <TrendingUp className="w-6 h-6" />
           </div>
           <div>
-            <div className="text-2xl font-black text-slate-900">70%</div>
-            <div className="text-xs font-medium text-slate-500 mt-0.5">Tỉ lệ thực hành Lab</div>
+            <div className="text-2xl font-black text-slate-900">{classes.length}</div>
+            <div className="text-xs font-medium text-slate-500 mt-0.5">Khóa học Blended</div>
           </div>
         </Card>
       </div>

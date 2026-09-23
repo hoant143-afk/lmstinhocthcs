@@ -12,6 +12,7 @@ import { ClassEntity, Lesson, Certificate, Announcement, EnrolledClassInfo } fro
 import { Card, CardHeader } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { ProgressBar } from '../../components/common/ProgressBar';
+import { LearningModeBadge } from '../../components/common/Badge';
 import {
   BookOpen,
   Award,
@@ -405,7 +406,7 @@ export const StudentDashboardPage: React.FC = () => {
                 </h2>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                {activeClass.subject} • {activeClass.grade} • Tỉ lệ Blended: {activeClass.onlineRatio || 30}% Online / {activeClass.offlineRatio || 70}% Trực tiếp
+                {activeClass.subject} • {activeClass.grade} • Mô hình Học Tập Kết Hợp Blended LMS
               </p>
             </div>
 
@@ -494,7 +495,13 @@ export const StudentDashboardPage: React.FC = () => {
                           </div>
 
                           <div className="space-y-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <LearningModeBadge mode={l.learningMode} />
+                              {l.scheduledDate && (
+                                <span className="text-[11px] text-slate-500 font-medium">
+                                  {l.scheduledDate} {l.startTime && `(${l.startTime})`}
+                                </span>
+                              )}
                               {l.sequentialLock && (
                                 <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded flex items-center gap-1">
                                   <ShieldCheck className="w-3 h-3 text-blue-600" />

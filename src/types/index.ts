@@ -80,12 +80,26 @@ export interface ClassEntity {
   classCode: string; // e.g. "BLN-7842"
   certificateEnabled: boolean;
   scoringEnabled: boolean;
-  onlineRatio: number; // 30
-  offlineRatio: number; // 70
+  plannedLessonCount?: number;
+  courseStartDate?: string;
+  courseEndDate?: string;
+  onlineRatio?: number; // legacy backwards compatibility
+  offlineRatio?: number; // legacy backwards compatibility
   status?: 'active' | 'inactive';
   joinEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CourseModeStats {
+  totalLessons: number;
+  scheduledCount: number;
+  plannedCount: number;
+  onlineCount: number;
+  offlineCount: number;
+  unassignedCount: number;
+  onlinePercent: number;
+  offlinePercent: number;
 }
 
 export interface Student {
@@ -186,7 +200,8 @@ export interface EnrolledClassInfo {
   } | null;
 }
 
-export type LessonStatus = 'draft' | 'published' | 'active' | 'ended';
+export type LessonStatus = 'draft' | 'published' | 'scheduled' | 'active' | 'completed' | 'cancelled' | 'ended';
+export type LessonLearningMode = 'online' | 'offline';
 
 export interface Lesson {
   id: string;
@@ -197,6 +212,13 @@ export interface Lesson {
   objectives: string[];
   coverImage?: string;
   status: LessonStatus;
+  learningMode?: LessonLearningMode | null;
+  scheduledDate?: string;
+  startTime?: string;
+  endTime?: string;
+  location?: string;
+  onlineMeetingUrl?: string;
+  orderIndex?: number;
   openAt?: string;
   dueAt?: string;
   sequentialLock: boolean;
@@ -274,9 +296,10 @@ export interface Task {
   title: string;
   description: string;
   type: TaskType;
-  phase: TaskPhase; // 'online' (30%) | 'offline' (70%)
+  phase?: TaskPhase; // legacy compatibility
   required: boolean;
   order: number;
+  orderIndex?: number;
   durationMinutes?: number;
   points?: number;
   settings: TaskSettings;

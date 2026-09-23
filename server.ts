@@ -477,6 +477,74 @@ async function startServer() {
     res.json(db.classes[index]);
   });
 
+  app.put('/api/classes/:id/course-plan', (req, res) => {
+    const index = db.classes.findIndex(c => c.id === req.params.id);
+    if (index === -1) return res.status(404).json({ error: 'Class not found' });
+    const { plannedLessonCount, courseStartDate, courseEndDate } = req.body;
+    db.classes[index] = {
+      ...db.classes[index],
+      plannedLessonCount: plannedLessonCount !== undefined ? plannedLessonCount : db.classes[index].plannedLessonCount,
+      courseStartDate: courseStartDate !== undefined ? courseStartDate : db.classes[index].courseStartDate,
+      courseEndDate: courseEndDate !== undefined ? courseEndDate : db.classes[index].courseEndDate,
+      updatedAt: new Date().toISOString()
+    };
+    saveDatabaseToDisk();
+    res.json(db.classes[index]);
+  });
+
+  app.get('/api/classes/:id/mode-stats', (req, res) => {
+    const cls = db.classes.find(c => c.id === req.params.id);
+    if (!cls) return res.status(404).json({ error: 'Class not found' });
+
+    const lessons = db.lessons.filter(l => l.classId === req.params.id);
+    const totalLessons = lessons.length;
+    const plannedCount = cls.plannedLessonCount || totalLessons || 0;
+
+    let onlineCount = 0;
+    let offlineCount = 0;
+    let unassignedCount = 0;
+
+    for (const l of lessons) {
+      if (l.learningMode === 'online') {
+        onlineCount++;
+      } else if (l.learningMode === 'offline') {
+        offlineCount++;
+      } else {
+        unassignedCount++;
+      }
+    }
+
+    const scheduledCount = onlineCount + offlineCount;
+    const divisor = scheduledCount > 0 ? scheduledCount : totalLessons;
+    const onlinePercent = divisor > 0 ? Math.round((onlineCount / divisor) * 1000) / 10 : 0;
+    const offlinePercent = divisor > 0 ? Math.round((offlineCount / divisor) * 1000) / 10 : 0;
+
+    res.json({
+      totalLessons,
+      scheduledCount,
+      plannedCount,
+      onlineCount,
+      offlineCount,
+      unassignedCount,
+      onlinePercent,
+      offlinePercent
+    });
+  });
+
+  app.get('/api/classes/:classId/schedule', (req, res) => {
+    const lessons = db.lessons.filter(l => l.classId === req.params.classId);
+    const sorted = [...lessons].sort((a, b) => {
+      if (a.orderIndex !== undefined && b.orderIndex !== undefined) {
+        return a.orderIndex - b.orderIndex;
+      }
+      if (a.scheduledDate && b.scheduledDate && a.scheduledDate !== b.scheduledDate) {
+        return a.scheduledDate.localeCompare(b.scheduledDate);
+      }
+      return (a.order || 0) - (b.order || 0);
+    });
+    res.json(sorted);
+  });
+
   app.delete('/api/classes/:id', (req, res) => {
     const id = req.params.id;
     const index = db.classes.findIndex(c => c.id === id);
@@ -1595,16 +1663,28 @@ async function startServer() {
   // --- LESSONS ---
   app.get('/api/lessons', (req, res) => {
     const { classId } = req.query;
+    let list = db.lessons;
     if (classId) {
-      return res.json(db.lessons.filter(l => l.classId === classId));
+      list = list.filter(l => l.classId === classId);
     }
-    res.json(db.lessons);
+    // Migration fallback for legacy lessons without learningMode
+    const normalized = list.map(l => ({
+      ...l,
+      learningMode: l.learningMode || 'online',
+      orderIndex: l.orderIndex !== undefined ? l.orderIndex : (l.order || 0)
+    })).sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+
+    res.json(normalized);
   });
 
   app.get('/api/lessons/:id', (req, res) => {
     const lesson = db.lessons.find(l => l.id === req.params.id);
     if (!lesson) return res.status(404).json({ error: 'Lesson not found' });
-    res.json(lesson);
+    res.json({
+      ...lesson,
+      learningMode: lesson.learningMode || 'online',
+      orderIndex: lesson.orderIndex !== undefined ? lesson.orderIndex : (lesson.order || 0)
+    });
   });
 
   app.post('/api/lessons', (req, res) => {
@@ -1612,12 +1692,33 @@ async function startServer() {
     const newLesson: Lesson = {
       ...data,
       id: data.id || `lesson_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      learningMode: data.learningMode || 'online',
+      order: data.order !== undefined ? data.order : db.lessons.filter(l => l.classId === data.classId).length + 1,
+      orderIndex: data.orderIndex !== undefined ? data.orderIndex : (data.order !== undefined ? data.order : db.lessons.filter(l => l.classId === data.classId).length + 1),
+      status: data.status || 'scheduled',
       createdAt: data.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     db.lessons.push(newLesson);
     saveDatabaseToDisk();
     res.status(201).json(newLesson);
+  });
+
+  app.post('/api/lessons/reorder', (req, res) => {
+    const { lessonIds } = req.body;
+    if (!Array.isArray(lessonIds)) {
+      return res.status(400).json({ error: 'lessonIds must be an array' });
+    }
+    lessonIds.forEach((id: string, index: number) => {
+      const lesson = db.lessons.find(l => l.id === id);
+      if (lesson) {
+        lesson.order = index + 1;
+        lesson.orderIndex = index + 1;
+        lesson.updatedAt = new Date().toISOString();
+      }
+    });
+    saveDatabaseToDisk();
+    res.json({ success: true });
   });
 
   app.put('/api/lessons/:id', (req, res) => {

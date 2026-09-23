@@ -1,6 +1,6 @@
 import React from 'react';
-import { Sparkles, Users, Lock, CheckCircle, Clock, FileText, Video, HelpCircle, Code, Award, Link2 } from 'lucide-react';
-import { TaskPhase, TaskProgressStatus, LessonStatus, TaskType } from '../../types';
+import { Sparkles, Users, Lock, CheckCircle, Clock, FileText, Video, HelpCircle, Code, Award, Link2, Monitor, MapPin } from 'lucide-react';
+import { TaskPhase, TaskProgressStatus, LessonStatus, TaskType, LessonLearningMode } from '../../types';
 
 export interface BadgeProps {
   children: React.ReactNode;
@@ -34,11 +34,37 @@ export const Badge: React.FC<BadgeProps> = ({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-medium rounded-lg whitespace-nowrap ${sizeStyles[size]} ${variantStyles[variant]} ${className}`}
+      className={`inline-flex items-center gap-1.5 font-bold rounded-lg whitespace-nowrap ${sizeStyles[size]} ${variantStyles[variant]} ${className}`}
     >
       {icon}
       {children}
     </span>
+  );
+};
+
+export const LearningModeBadge: React.FC<{ mode?: LessonLearningMode | null; size?: 'sm' | 'md'; className?: string }> = ({
+  mode,
+  size = 'sm',
+  className = ''
+}) => {
+  if (mode === 'online') {
+    return (
+      <Badge variant="blue" size={size} icon={<Monitor className="w-3.5 h-3.5 text-blue-600" />} className={className}>
+        ONLINE
+      </Badge>
+    );
+  }
+  if (mode === 'offline') {
+    return (
+      <Badge variant="emerald" size={size} icon={<MapPin className="w-3.5 h-3.5 text-emerald-600" />} className={className}>
+        TRỰC TIẾP
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="slate" size={size} className={className}>
+      Chưa xếp lịch
+    </Badge>
   );
 };
 
@@ -94,13 +120,13 @@ export const PhaseBadge: React.FC<{ phase: TaskPhase; className?: string }> = ({
   if (phase === 'online') {
     return (
       <Badge variant="blue" icon={<Sparkles className="w-3 h-3 text-blue-600" />} className={className}>
-        30% Online (Tự học)
+        Online
       </Badge>
     );
   }
   return (
     <Badge variant="amber" icon={<Users className="w-3 h-3 text-amber-600" />} className={className}>
-      70% Trực tiếp (Phòng Lab)
+      Trực tiếp
     </Badge>
   );
 };
@@ -140,6 +166,12 @@ export const LessonStatusBadge: React.FC<{ status: LessonStatus; className?: str
       return <Badge variant="emerald">Đang diễn ra</Badge>;
     case 'published':
       return <Badge variant="blue">Đã xuất bản</Badge>;
+    case 'scheduled':
+      return <Badge variant="indigo">Đã xếp lịch</Badge>;
+    case 'completed':
+      return <Badge variant="emerald">Đã hoàn thành</Badge>;
+    case 'cancelled':
+      return <Badge variant="rose">Đã hủy</Badge>;
     case 'ended':
       return <Badge variant="slate">Đã kết thúc</Badge>;
     case 'draft':

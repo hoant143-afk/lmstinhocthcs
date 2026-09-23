@@ -1,5 +1,5 @@
 import { classRepo, studentRepo, lessonRepo, progressRepo, teacherRepo } from '../repositories';
-import { ClassEntity, Teacher } from '../types';
+import { ClassEntity, Teacher, CourseModeStats } from '../types';
 
 export function generateClassCode(prefix: string = 'LMS'): string {
   const cleanPrefix = prefix.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 5) || 'LMS';
@@ -61,6 +61,9 @@ export const classService = {
       certificateEnabled?: boolean;
       scoringEnabled?: boolean;
       customCode?: string;
+      plannedLessonCount?: number;
+      courseStartDate?: string;
+      courseEndDate?: string;
     }
   ): Promise<ClassEntity> {
     const classCode = data.customCode?.trim().toUpperCase() || generateClassCode(data.subject.slice(0, 4) || 'LMS');
@@ -69,7 +72,7 @@ export const classService = {
     const existing = await classRepo.getByCode(classCode);
     const finalCode = existing ? generateClassCode(data.subject.slice(0, 4) || 'LMS') : classCode;
 
-    return classRepo.create({
+    const payload: any = {
       teacherId,
       name: data.name.trim(),
       subject: data.subject.trim(),
@@ -79,13 +82,26 @@ export const classService = {
       classCode: finalCode,
       certificateEnabled: data.certificateEnabled ?? true,
       scoringEnabled: data.scoringEnabled ?? true,
-      onlineRatio: 30,
+      plannedLessonCount: data.plannedLessonCount || 10,
+      onlineRatio: 30, // backward compat
       offlineRatio: 70
-    });
+    };
+
+    if (data.courseStartDate) payload.courseStartDate = data.courseStartDate;
+    if (data.courseEndDate) payload.courseEndDate = data.courseEndDate;
+
+    return classRepo.create(payload);
   },
 
   async updateClass(id: string, data: Partial<ClassEntity>): Promise<ClassEntity | null> {
     return classRepo.update(id, data);
+  },
+
+  async updateCoursePlan(
+    id: string,
+    plan: { plannedLessonCount?: number; courseStartDate?: string; courseEndDate?: string }
+  ): Promise<ClassEntity | null> {
+    return classRepo.update(id, plan);
   },
 
   async regenerateCode(classId: string): Promise<string | null> {
@@ -100,10 +116,49 @@ export const classService = {
     return classRepo.delete(id);
   },
 
+  async getLearningModeStats(classId: string): Promise<CourseModeStats> {
+    const cls = await classRepo.getById(classId);
+    const lessons = await lessonRepo.getByClassId(classId);
+
+    const totalLessons = lessons.length;
+    const plannedCount = cls?.plannedLessonCount || totalLessons || 0;
+
+    let onlineCount = 0;
+    let offlineCount = 0;
+    let unassignedCount = 0;
+
+    for (const l of lessons) {
+      if (l.learningMode === 'online') {
+        onlineCount++;
+      } else if (l.learningMode === 'offline') {
+        offlineCount++;
+      } else {
+        unassignedCount++;
+      }
+    }
+
+    const scheduledCount = onlineCount + offlineCount;
+    const divisor = scheduledCount > 0 ? scheduledCount : totalLessons;
+    const onlinePercent = divisor > 0 ? Math.round((onlineCount / divisor) * 1000) / 10 : 0;
+    const offlinePercent = divisor > 0 ? Math.round((offlineCount / divisor) * 1000) / 10 : 0;
+
+    return {
+      totalLessons,
+      scheduledCount,
+      plannedCount,
+      onlineCount,
+      offlineCount,
+      unassignedCount,
+      onlinePercent,
+      offlinePercent
+    };
+  },
+
   async getClassStats(classId: string) {
     const students = await studentRepo.getByClassId(classId);
     const lessons = await lessonRepo.getByClassId(classId);
     const allProgress = await progressRepo.getAllByClass(classId);
+    const modeStats = await this.getLearningModeStats(classId);
 
     const activeLessons = lessons.filter(l => l.status === 'active' || l.status === 'published');
     
@@ -117,7 +172,8 @@ export const classService = {
       totalStudents: students.length,
       totalLessons: lessons.length,
       activeLessons: activeLessons.length,
-      totalCompletedTasks
+      totalCompletedTasks,
+      modeStats
     };
   }
 };

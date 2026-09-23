@@ -3,7 +3,12 @@ import { Task, TaskPhase, TaskType, TaskSettings } from '../types';
 
 export const taskService = {
   async getTasksByLesson(lessonId: string): Promise<Task[]> {
-    return taskRepo.getByLessonId(lessonId);
+    const list = await taskRepo.getByLessonId(lessonId);
+    return list.sort((a, b) => {
+      const orderA = a.orderIndex !== undefined ? a.orderIndex : (a.order || 0);
+      const orderB = b.orderIndex !== undefined ? b.orderIndex : (b.order || 0);
+      return orderA - orderB;
+    });
   },
 
   async getTaskById(id: string): Promise<Task | null> {
@@ -15,22 +20,28 @@ export const taskService = {
     title: string;
     description: string;
     type: TaskType;
-    phase: TaskPhase;
+    phase?: TaskPhase;
     required: boolean;
     settings: TaskSettings;
     order?: number;
+    orderIndex?: number;
+    points?: number;
+    durationMinutes?: number;
   }): Promise<Task> {
     const existing = await taskRepo.getByLessonId(data.lessonId);
-    const order = data.order !== undefined ? data.order : existing.length + 1;
+    const order = data.orderIndex !== undefined ? data.orderIndex : (data.order !== undefined ? data.order : existing.length + 1);
 
     const newTask = await taskRepo.create({
       lessonId: data.lessonId,
       title: data.title.trim(),
       description: data.description.trim(),
       type: data.type,
-      phase: data.phase,
+      phase: data.phase || 'online',
       required: data.required,
       order,
+      orderIndex: order,
+      points: data.points,
+      durationMinutes: data.durationMinutes,
       settings: data.settings
     });
 
